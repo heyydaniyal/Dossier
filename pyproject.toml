@@ -1,0 +1,33 @@
+[project]
+name = "dossier"
+version = "0.1.0"
+description = "Dossier: Multi-Agent AI for Anti-Money-Laundering Alert Investigation (NOVA IMS capstone)"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "pydantic>=2.7,<3",
+    "pyyaml>=6",
+    "python-dotenv>=1",
+    "streamlit>=1.38",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pre-commit>=3.7",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

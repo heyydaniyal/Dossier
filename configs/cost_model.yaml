@@ -1,0 +1,50 @@
+# Cost / quota model inputs (Phase 0). Every number here is an ASSUMPTION until marked verified.
+# Re-run `uv run python scripts/cost_model.py` after any change; re-run in P8 with the real N
+# from the power pilot and measured calls/tokens per alert.
+
+schedule:
+  deadline: 2026-12-04            # team-chosen 10-week plan (2026-09-25 + 10 weeks)
+  dev_days: 45                    # days where development LLM calls happen (P7-P13 window, approx.)
+  eval_days: 10                   # days reserved for the P14 AGENT-TEST ablation runs
+
+evaluation:
+  n_alerts_target: 150            # Tier A size wanted. PLACEHOLDER until P8 power pilot.
+  n_alerts_min: 100               # floor. PLACEHOLDER: replaced by power-pilot N (P6 rule) in P8.
+  repeats_target: 5
+  repeats_min: 3                  # hard floor (global rule)
+  contingency: 0.25               # never spent
+  dev_multiplier: 3.0             # ASSUMPTION stated by phase spec: dev cost = 3x final eval cost
+  dev_cache_hit_rate: 0.5         # ASSUMPTION: share of dev calls served by the dev-only LLM cache
+
+# LLM calls and tokens per alert, per configuration. ASSUMPTIONS until measured in P8.
+configurations:
+  # H1 pair (priority 1)
+  full_system:      {calls: 15, in_tok: 3500, out_tok: 500, h1: true}
+  single_agent:     {calls: 8,  in_tok: 4000, out_tok: 500, h1: true}
+  # secondary ablations (priority 2, in this order)
+  no_deliberation:  {calls: 12, in_tok: 3500, out_tok: 500}
+  no_critic:        {calls: 12, in_tok: 3500, out_tok: 500}
+  no_policy_rag:    {calls: 13, in_tok: 3000, out_tok: 500}
+  fixed_pipeline:   {calls: 14, in_tok: 3500, out_tok: 500}   # H6: no runtime planning
+  # rules-only and model-only baselines make 0 LLM calls -> free, always included
+
+providers:
+  eur_per_usd: 0.86               # ASSUMPTION; check on the day of any payment
+  gemini_free:
+    mode: quota
+    model_id: gemini-3.1-flash-lite   # candidate; pin exact id in P7
+    rpd: 1000                     # UNVERIFIED: read the real value in AI Studio > your project
+    rpm: 15                       # UNVERIFIED
+    tpm: 250000                   # UNVERIFIED
+  gemini_flash_lite_paid:
+    mode: price
+    model_id: gemini-3.1-flash-lite
+    usd_per_m_in: 0.25            # ai.google.dev/gemini-api/docs/pricing, read 2026-09-25
+    usd_per_m_out: 1.50
+  gemini_flash_paid:
+    mode: price
+    model_id: gemini-3.8-flash
+    usd_per_m_in: 0.75            # same source; page says prices double from 2027-01-01
+    usd_per_m_out: 3.75
+
+budget_eur: 0                     # team decision 2026-09-25
