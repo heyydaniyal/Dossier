@@ -19,10 +19,12 @@ Re-run with `--verify` on 2026-09-29: every number reproduced exactly.
 |---|---|
 | Source | Kaggle "IBM Transactions for Anti Money Laundering (AML)", uploader ealtman2019 |
 | Generator | IBM IT-AML simulator (Altman et al., "Realistic Synthetic Financial Transactions for Anti-Money Laundering Models", NeurIPS 2023 Datasets & Benchmarks, arXiv:2306.16424) |
-| Licence | **CDLA-Sharing-1.0**, as stated in IBM's `IBM/AML-Data` GitHub README ("the actual data is released under the CDLA-Sharing-1.0 license"). The Kaggle page itself could not be fetched automatically: **confirm on the Kaggle page** |
+| Licence | **CDLA-Sharing-1.0** (Community Data License Agreement – Sharing, Version 1.0). Confirmed on the Kaggle page (licence text checked by Dani, 2026-09-29) and in IBM's `IBM/AML-Data` GitHub README |
 | Nature | Fully synthetic. No real persons or institutions. Not real-world data |
 | Variants used | **HI-Medium** (primary), **LI-Medium** (regime C: within-generator cross-variant generalisation, never "external validation"), HI-Small (fast tests only) |
-| Redistribution | Raw files are never committed to our repositories (size, and they contain ground truth). CDLA-Sharing permits sharing under the same licence terms |
+| What the licence allows | **Use** of the data, including any analysis (§2.1). **Results** (models, metrics, aggregate statistics, the report) carry **no** obligations (§3.5) |
+| If we ever publish data | Any published raw data or subset (e.g. the P13 demo subset on the public Streamlit app) must: be published under CDLA-Sharing-1.0 with the licence text or a link (§3.3); keep the attribution to IBM / the Kaggle source (§3.1c); mark files we changed or added to (e.g. synthesised KYC) with a prominent notice (§3.1b) |
+| Our policy | Raw files are never committed to our repositories (size, and they contain ground truth) |
 
 Input fingerprints are frozen in `configs/data_sources.yaml`; the audit refuses to run if any file differs.
 
@@ -35,8 +37,6 @@ Input fingerprints are frozen in `configs/data_sources.yaml`; the audit refuses 
 | LI-Medium_Patterns.txt | 456 attempts / 3,909 txns | 6aa4c4041894eb27 |
 | LI-Medium_accounts.csv | 2,040,823 | d553f80638c183dd |
 | HI-Small_Trans.csv | 5,078,345 | b19d39f515523373 |
-
-HI-Small_Trans and all three accounts files are byte-identical to the copies in the teammate repository `jnfpm/Capstone-Project` (same Git LFS SHA-256).
 
 ## 2. Schema (as printed, not assumed)
 
