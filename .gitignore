@@ -17,3 +17,10 @@ artifacts/
 demo_store/
 .streamlit/secrets.toml
 .ipynb_checkpoints/
+
+# IBM AML raw files (never commit; multi-GB and contain ground truth)
+*_Patterns.txt
+*_Trans.csv
+*_accounts.csv
+data/
+!src/data/
