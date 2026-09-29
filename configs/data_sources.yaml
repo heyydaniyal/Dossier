@@ -1,0 +1,52 @@
+# Verified by scripts.audit.discover v1.0.0 on 2026-09-29 (Dani's laptop, Windows).
+# FROZEN input fingerprints. The audit refuses to run if a file differs.
+# Source: Kaggle 'IBM Transactions for Anti Money Laundering (AML)', ealtman2019.
+files:
+  HI-Medium_Trans.csv:
+    sha256: 3126afb8155e7c8815d62bc5370549a7b5ae6bf7dfe872b3cd7813e66a3d7ff5
+    size_bytes: 3031783420
+    n_lines: 31898239
+    n_data_rows: 31898238
+  HI-Medium_Patterns.txt:
+    sha256: d612cd7ed6f7761c0e36f3b788dfbae68aa0842c77145b192c777c22daba5c9f
+    size_bytes: 2279574
+    n_lines: 31011
+    n_attempts: 2756
+    n_pattern_txns: 22743
+  HI-Medium_accounts.csv:
+    sha256: 0fb441d31df9ca0868803eebce718b7e85a4e385334222427c400a5ba64475f9
+    size_bytes: 145008642
+    n_lines: 2087787
+    n_data_rows: 2087786
+  LI-Medium_Trans.csv:
+    sha256: 0fc89584453c97472b1bfde7ca746e21d7167140c22a6c4875272b197a4a3910
+    size_bytes: 2976436978
+    n_lines: 31251484
+    n_data_rows: 31251483
+  LI-Medium_Patterns.txt:
+    sha256: 6aa4c4041894eb272339ed10c862a4ee1ac53a469326ed9dd3dd9e35da0e625c
+    size_bytes: 390893
+    n_lines: 5277
+    n_attempts: 456
+    n_pattern_txns: 3909
+  LI-Medium_accounts.csv:
+    sha256: d553f80638c183dd0b015f85810da7085a2fcf0adb4abee61f2ed609c693cab4
+    size_bytes: 141781157
+    n_lines: 2040824
+    n_data_rows: 2040823
+  HI-Small_Trans.csv:
+    sha256: b19d39f515523373f991b689c07e11e7b0b95c17a2c27a87d91584ae16c5b040
+    size_bytes: 475664283
+    n_lines: 5078346
+    n_data_rows: 5078345
+  HI-Small_Patterns.txt:
+    sha256: 2c546b5ce6009e73851f0139af053cf845f08bf92f3bc82fe1eb937dec2ef39b
+    size_bytes: 323844
+    n_lines: 4319
+    n_attempts: 370
+    n_pattern_txns: 3209
+  HI-Small_accounts.csv:
+    sha256: 786808526e33cfc441212dd6fccda7edfc24172149bed59c6ef59b186836b014
+    size_bytes: 34053187
+    n_lines: 518582
+    n_data_rows: 518581

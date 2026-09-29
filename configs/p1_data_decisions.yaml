@@ -1,0 +1,47 @@
+# Phase 1 FROZEN data decisions (2026-09-29, confirmed by Dani).
+# Later phases READ this file instead of hard-coding values.
+# Evidence for each decision is re-checked by tests/test_p1_decisions.py against
+# docs/audit/p1_audit_results.json. Changing anything here needs a dated entry in
+# PROJECT_STATE.md (FROZEN decisions) and a team announcement.
+version: 1
+
+variants:
+  primary: HI-Medium
+  cross_variant: LI-Medium        # regime C: within-generator cross-variant generalisation
+  fixture_only: HI-Small          # fast tests / development only, never reported
+
+# D1 + D3: usable span. Rows at or after span_end_exclusive are EXCLUDED from every split
+# (generator tail: laundering continues after normal activity stops).
+span:
+  start: "2022-09-01T00:00:00+00:00"
+  end_exclusive: "2022-09-17T00:00:00+00:00"
+  timezone: UTC                   # raw timestamps are naive; interpreted as UTC
+  resolution: minute              # tie rule (frozen P0): visible iff event_ts < as_of
+
+# D4: provisional model holdout. P2 may move TEST start LATER, never earlier.
+provisional_holdout:
+  test_start_not_before: "2022-09-13T00:00:00+00:00"
+
+# D2: account identity
+account_key:
+  format: "{bank}|{account}"      # bank string exactly as in transactions (leading zeros kept)
+  accounts_file_join: "strip leading zeros from bank ('' -> '0'), then (bank, account)"
+
+# D5: identifiers and file order are never features, sort keys, tie-breakers, split or sample keys
+banned_as_signal:
+  - account_number_value          # includes ordering, prefixes, suffixes
+  - bank_id_value
+  - entity_id_value
+  - row_id                        # file position; technical key only
+  - file_order
+allowed_relationships:            # relationships derived from IDs are allowed
+  - same_entity_id                # accounts owned by the same entity
+  - bank_country_from_bank_name
+  - entity_type
+group_split_key: "keyed hash of account_key (P2)"
+
+# D6: currency conversion to USD with the dataset's own fixed rates
+currency:
+  reporting_currency: US Dollar
+  method: "usd_per_unit from the dataset's cross-currency transactions; re-derived on TRAIN in P3"
+  external_fx: forbidden

@@ -13,7 +13,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_PACKAGES = ["src/agents", "src/tools", "src/rag", "src/app"]
-FORBIDDEN_PREFIXES = ("src.eval",)
+# Ground-truth readers: the evaluation harness and the offline data audit (P1).
+FORBIDDEN_PREFIXES = ("src.eval", "scripts.audit")
 
 
 def _violations(py: Path) -> list[str]:
@@ -35,7 +36,7 @@ def _violations(py: Path) -> list[str]:
             if any(node.value.startswith(p) for p in FORBIDDEN_PREFIXES):
                 out.append(f"{py.name}:{node.lineno} string literal '{node.value}'")
         for n in names:
-            if n == "src.eval" or n.startswith("src.eval."):
+            if any(n == p or n.startswith(p + ".") for p in FORBIDDEN_PREFIXES):
                 out.append(f"{py.name}:{node.lineno} imports '{n}'")
     return out
 
@@ -65,6 +66,8 @@ def test_detector_catches_violations(tmp_path: Path):
             # three dots from src/agents/_tmp_probe resolve to src.eval
             "c.py": "from ...eval import labels\n",
             "d.py": "import importlib\nimportlib.import_module('src.eval.labels')\n",
+            "e.py": "from scripts.audit import discover\n",
+            "f.py": "import scripts.audit.discover\n",
         }
         for name, code in cases.items():
             f = d / name
