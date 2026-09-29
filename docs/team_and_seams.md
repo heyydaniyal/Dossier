@@ -1,6 +1,6 @@
 # Team seams and ownership (Phase 0)
 
-**Status:** seams defined; **names not yet assigned** (team decision deferred on 2026-09-25). Assignment is required before Phase 2 starts.
+**Status (2026-09-28):** Daniyal Ahmad owns all four seams. Joana Martins, Maiara Almada and Mariana Martins attend every end-of-phase walkthrough and write their own defence notes (docs/defence_notes/), because the grade requires every member to defend every part.
 
 | Seam | Owns | Phases led | Interfaces it produces |
 |---|---|---|---|

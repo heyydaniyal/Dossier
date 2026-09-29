@@ -47,4 +47,4 @@ providers:
     usd_per_m_in: 0.75            # same source; page says prices double from 2027-01-01
     usd_per_m_out: 3.75
 
-budget_eur: 0                     # team decision 2026-09-25
+budget_eur: 35                    # option (a) 2026-09-28: dev on free tier, one paid final eval (was 0 on 2026-09-25)
