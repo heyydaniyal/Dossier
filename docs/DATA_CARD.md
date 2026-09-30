@@ -152,8 +152,10 @@ Recommendation for P4 (not decided here): report feature importance, and a sensi
 
 ## 9. KYC available (replaces the "no KYC" assumption)
 
-For **every** transacting account: bank name (foreign banks carry a country, e.g. "Spain Bank #16393"; US banks carry a city), **Entity ID** (668,138 entities; 210,275 own several accounts, up to 8,638, almost all across several banks) and **entity type** from the entity name: Corporation 679,329 · Partnership 732,828 · Sole Proprietorship 667,814 · Country 4,738 · Individual 3,050 · Direct 27 (HI-Medium). Label signal is weak (lift 0.6–1.5 with support).
+For **every** transacting account: bank name (foreign banks carry a country, e.g. "Spain Bank #16393"; crypto platforms appear as "Crytpo Bank #n", the data's own spelling; every other name is a US-style named bank, e.g. "Savings Bank of Seattle" or "Hearthstone Bancorp", and only some of these contain a city), **Entity ID** (668,138 entities; 210,275 own several accounts, up to 8,638, almost all across several banks) and **entity type** from the entity name: Corporation 679,329 · Partnership 732,828 · Sole Proprietorship 667,814 · Country 4,738 · Individual 3,050 · Direct 27 (HI-Medium). Label signal is weak (lift 0.6–1.5 with support).
 Not available: customer age, occupation, income, risk rating, onboarding date, addresses → synthesised in P2 if needed, and documented as synthetic.
+
+*Correction 2026-09-30 (P2):* the original text said "US banks carry a city". The label-free P2 discovery (`scripts/p2/discover_banks.py`, HI-Medium) found three forms: "<Country> Bank #n" (32 countries), "Crytpo Bank #n", and 468 other names treated as US banks, many without a city. No number or decision changes.
 
 ## 10. Scope and size (task 8, DECISION)
 
