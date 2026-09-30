@@ -683,6 +683,30 @@ def compare_runs(a: Path, b: Path) -> list[str]:
     return diffs
 
 
+def compare_thresholds(original: Path, regenerated: Path) -> tuple[list[str], list[str]]:
+    """Thresholds file check for --verify.
+
+    Everything calibration PRODUCED (method, taus, thresholds, actions, calibrated_on) must be
+    identical. `inputs_sha256` records the config files as they were at calibration time; a config
+    edited afterwards (e.g. p2_split.yaml gaining accepted_deviations or status FROZEN) changes that
+    record without changing any threshold. Such changes are reported as notes, never hidden."""
+    a = yaml.safe_load(original.read_text(encoding="utf-8"))
+    b = yaml.safe_load(regenerated.read_text(encoding="utf-8"))
+    ia, ib = a.pop("inputs_sha256", {}), b.pop("inputs_sha256", {})
+    diffs = [
+        f"configs/p2_rule_thresholds.yaml: '{k}' differs"
+        for k in sorted(set(a) | set(b))
+        if a.get(k) != b.get(k)
+    ]
+    notes = [
+        f"configs/{k} changed after calibration (recorded {str(ia.get(k))[:12]}, now "
+        f"{str(ib.get(k))[:12]}); calibration outputs are identical"
+        for k in sorted(set(ia) | set(ib))
+        if ia.get(k) != ib.get(k)
+    ]
+    return diffs, notes
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Dossier P2: alerts, labels, KYC, dispositions")
     ap.add_argument("stage", choices=["calibrate", "kyc", "build", "all"])
@@ -742,15 +766,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     diffs = compare_runs(args.out_root / args.variant / "runtime", vroot / args.variant / "runtime")
     diffs += compare_runs(args.out_root / args.variant / "eval", vroot / args.variant / "eval")
-    for f in ("p2_fx_usd_per_unit.yaml", "p2_rule_thresholds.yaml"):
-        if (vcfg / f).is_file() and sha256(vcfg / f) != sha256(ROOT / "configs" / f):
-            diffs.append(f"configs/{f}: bytes differ")
+    f = "p2_fx_usd_per_unit.yaml"
+    if (vcfg / f).is_file() and sha256(vcfg / f) != sha256(ROOT / "configs" / f):
+        diffs.append(f"configs/{f}: bytes differ")
+    notes: list[str] = []
+    f = "p2_rule_thresholds.yaml"
+    if (vcfg / f).is_file():
+        d, notes = compare_thresholds(ROOT / "configs" / f, vcfg / f)
+        diffs += d
     if diffs:
         print(f"REGENERATION FAILED: {len(diffs)} differences")
         for d in diffs[:40]:
             print("  " + d)
         return 1
-    print("REPRODUCED: every output file is byte-identical")
+    print(
+        "REPRODUCED: every data file and the FX table are byte-identical; "
+        "thresholds file identical in every calibrated value"
+    )
+    for n in notes:
+        print("  note: " + n)
     return 0
 
 

@@ -312,3 +312,39 @@ def test_kyc_stage_needs_no_test_data(p2_run, tmp_path):
         "no_material_gain",
         "insufficient_data",
     )
+
+
+def _thr_file(path, split_hash="aaa", tau=0.999, start="2022-09-02T00:00:00+00:00"):
+    import yaml
+
+    doc = {
+        "version": 1,
+        "calibrated_on": {"period": "TRAIN", "start": start},
+        "inputs_sha256": {"p2_rules.yaml": "rrr", "p2_split.yaml": split_hash},
+        "method": "per_rule",
+        "rules": {"R01": {"tau": tau, "threshold": 10000.0}},
+    }
+    path.write_text("# header\n" + yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_verify_thresholds_input_hash_change_is_a_note_not_hidden(tmp_path):
+    from scripts.p2.run_p2 import compare_thresholds
+
+    a = _thr_file(tmp_path / "a.yaml", split_hash="old")
+    b = _thr_file(tmp_path / "b.yaml", split_hash="new")
+    diffs, notes = compare_thresholds(a, b)
+    assert diffs == []
+    assert len(notes) == 1 and "p2_split.yaml" in notes[0]
+
+
+def test_verify_thresholds_any_calibrated_value_change_fails(tmp_path):
+    from scripts.p2.run_p2 import compare_thresholds
+
+    a = _thr_file(tmp_path / "a.yaml")
+    assert compare_thresholds(a, _thr_file(tmp_path / "b.yaml", tau=0.998))[0] == [
+        "configs/p2_rule_thresholds.yaml: 'rules' differs"
+    ]
+    assert compare_thresholds(a, _thr_file(tmp_path / "c.yaml", start="2022-09-03T00:00:00+00:00"))[
+        0
+    ] == ["configs/p2_rule_thresholds.yaml: 'calibrated_on' differs"]

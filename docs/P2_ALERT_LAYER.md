@@ -245,3 +245,5 @@ Probability that the analyst confirms the alert:
 - `planting.parquet`
 
 Regeneration with the same seed is byte-identical: `run_p2 all --verify`, and `test_regeneration_is_byte_identical` on the fixture.
+
+`--verify` compares every data file and the FX table byte for byte. The thresholds file is compared on everything calibration produced (method, τ, thresholds, actions, calibration period). Its `inputs_sha256` block records the config files **as they were at calibration time**, so it is reported as a note, never as a hidden pass. Why: the first real verify (2026-09-30) failed on exactly this block. `p2_split.yaml` had gained `accepted_deviations` (documentation only, no boundary change) after calibration, and freezing the split will change it again. The original thresholds file is kept unchanged, because its hash is the one every build recorded before TEST counts were computed.
