@@ -57,8 +57,10 @@ public_sector_types: [Country]            # -> government_public_body, risk low
 individual_types: [Individual]
 
 country_risk:
-  domestic: United States                 # banks named after a city are domestic (DATA_CARD §9)
+  domestic: United States                 # named banks (no '#n'), see bank-name formats below
   domestic_tier: low
+  crypto: Crypto                          # '<Crytpo> Bank #n' platforms: no jurisdiction
+  crypto_tier: high                       # decided by Dani 2026-09-30: fixed high (regulators rank crypto platforms high-risk)
   foreign_tier_probs: {low: 0.60, medium: 0.30, high: 0.10}   # synthetic, per country, seeded
 
 customer_risk_rating:       # points: sector/occupation risk (0/1/2) + country risk (0/1/2)
@@ -105,23 +107,13 @@ attribute_groups:
   real_or_data_derived: [entity_type, bank_country, country_risk, expected_activity_band]
   synthetic: [sector_or_occupation, onboarding_age_days, customer_risk_rating]
 
-# Foreign country names recognised in bank names ("<Country> Bank #n"). Any other location is
-# treated as a US city. The run prints every distinct location with its account count so the
-# list can be checked; an unexpected location is a finding, not a silent default.
-foreign_countries: [Afghanistan, Albania, Algeria, Andorra, Angola, Argentina, Armenia, Australia,
-  Austria, Azerbaijan, Bahamas, Bahrain, Bangladesh, Barbados, Belarus, Belgium, Belize, Benin,
-  Bhutan, Bolivia, Bosnia, Botswana, Brazil, Brunei, Bulgaria, Burkina Faso, Burundi, Cambodia,
-  Cameroon, Canada, Chad, Chile, China, Colombia, Congo, Costa Rica, Croatia, Cuba, Cyprus,
-  Czech Republic, Czechia, Denmark, Djibouti, Dominican Republic, Ecuador, Egypt, El Salvador,
-  Estonia, Ethiopia, Fiji, Finland, France, Gabon, Gambia, Germany, Ghana, Greece, Guatemala,
-  Guinea, Guyana, Haiti, Honduras, Hong Kong, Hungary, Iceland, India, Indonesia, Iran, Iraq,
-  Ireland, Israel, Italy, Jamaica, Japan, Jordan, Kazakhstan, Kenya, Korea, South Korea, Kuwait,
-  Kyrgyzstan, Laos, Latvia, Lebanon, Liberia, Libya, Liechtenstein, Lithuania, Luxembourg, Macau,
-  Madagascar, Malawi, Malaysia, Maldives, Mali, Malta, Mauritania, Mauritius, Mexico, Moldova,
-  Monaco, Mongolia, Montenegro, Morocco, Mozambique, Myanmar, Namibia, Nepal, Netherlands,
-  New Zealand, Nicaragua, Niger, Nigeria, North Korea, North Macedonia, Norway, Oman, Pakistan,
-  Panama, Paraguay, Peru, Philippines, Poland, Portugal, Qatar, Romania, Russia, Rwanda,
-  Saudi Arabia, Senegal, Serbia, Singapore, Slovakia, Slovenia, Somalia, South Africa, Spain,
-  Sri Lanka, Sudan, Suriname, Sweden, Switzerland, Syria, Taiwan, Tajikistan, Tanzania, Thailand,
-  Togo, Trinidad, Tunisia, Turkey, Turkmenistan, Uganda, Ukraine, United Arab Emirates, UAE,
-  United Kingdom, UK, Uruguay, Uzbekistan, Venezuela, Vietnam, Yemen, Zambia, Zimbabwe]
+# Bank-name formats, as printed by scripts/p2/discover_banks.py on HI-Medium (2026-09-30):
+#   '<X> Bank #<n>' (1,312,489 accounts): X is one of the 32 countries below, or 'Crytpo'
+#   (the data's own spelling; crypto platforms). Any other name (775,297 accounts, 468 names such
+#   as 'Savings Bank of Seattle', 'Hearthstone Bancorp') is a US-style named bank -> United States.
+# An '<X> Bank #<n>' prefix not listed here stops the run (unexpected format, never guessed).
+foreign_countries: [Australia, Austria, Belgium, Brazil, Canada, China, Croatia, Cyprus, Estonia,
+  Finland, France, Germany, Greece, India, Ireland, Israel, Italy, Japan, Latvia, Lithuania,
+  Luxembourg, Malta, Mexico, Netherlands, Portugal, Russia, Saudi Arabia, Slovakia, Slovenia, Spain,
+  Switzerland, UK]
+crypto_prefixes: [Crytpo]

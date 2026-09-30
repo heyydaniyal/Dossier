@@ -108,8 +108,8 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 | Attribute | Source | Label access |
 |---|---|---|
 | entity_type | REAL (accounts file) | none |
-| bank_location, bank_country | REAL (parsed bank name; a city means United States) | none |
-| country_risk | synthetic tier per country, seeded; US = low | none |
+| bank_location, bank_country | REAL, from the bank name. Formats printed by `discover_banks` (2026-09-30): '<Country> Bank #n' (32 countries), 'Crytpo Bank #n' (crypto platforms, country 'Crypto'), or a named US bank (468 names, e.g. 'Savings Bank of Seattle'; United States). An unknown '#n' prefix stops the run | none |
+| country_risk | synthetic tier per country, seeded; US = low; Crypto = high (decided 2026-09-30) | none |
 | sector_or_occupation | seeded draw by entity type | none (except planting, §9) |
 | expected_activity_band | rank of **burn-in day** volume within entity type, 25% ± 1-band noise; inactive accounts use a prior | none |
 | onboarding_date | uniform 2005-01-01 … 2022-08-31 | none |

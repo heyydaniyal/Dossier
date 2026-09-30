@@ -33,11 +33,14 @@ HEADER = (
     "Amount Paid,Payment Currency,Payment Format,Is Laundering"
 )
 ACC_HEADER = "Bank Name,Bank ID,Account Number,Entity ID,Entity Name"
+# the three real bank-name forms (discover_banks, 2026-09-30): named US bank, '<Country> Bank #n',
+# and the data's own 'Crytpo Bank #n'
 BANKS = [
-    ("001", "Chicago Bank #1"),
+    ("001", "Savings Bank of Seattle"),
     ("0020", "Spain Bank #20"),
-    ("030", "Boston Bank #30"),
+    ("030", "Hearthstone Bancorp"),
     ("04", "Japan Bank #4"),
+    ("05", "Crytpo Bank #5"),
 ]
 TYPES = ["Corporation", "Partnership", "Sole Proprietorship", "Individual"]
 EUR, BTC = 1.1, 20000.0

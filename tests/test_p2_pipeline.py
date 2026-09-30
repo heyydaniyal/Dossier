@@ -15,6 +15,7 @@ import polars as pl
 
 from src.alerts.build import ALERT_COLUMNS, to_alert
 from src.contracts.models import FORBIDDEN_FIELDS, HistoricalDisposition
+from src.data import kyc as kycmod
 from src.data.kyc import KYC_COLUMNS
 from src.eval.alert_labels import EVAL_LABEL_COLUMNS, to_alert_label
 from tests.p2_fixture import L, N, key
@@ -223,10 +224,12 @@ def test_kyc_covers_every_account_and_has_no_planting_trace(p2_run):
     assert set(k["account_key"]) == set(keys["account_key"])
     assert k["account_key"].n_unique() == k.height
     assert k.null_count().sum_horizontal().item() == 0
-    assert set(k["bank_country"]) == {"United States", "Spain", "Japan"}
-    assert k.filter(pl.col("bank_country") == "United States")[
-        "country_risk"
-    ].unique().to_list() == ["low"]
+    assert set(k["bank_country"]) == {"United States", "Spain", "Japan", "Crypto"}
+    assert set(k["bank_location"]) == {"United States", "Spain", "Japan", "Crytpo"}
+    us = k.filter(pl.col("bank_country") == "United States")["country_risk"].unique().to_list()
+    assert us == ["low"]
+    crypto = k.filter(pl.col("bank_country") == "Crypto")["country_risk"].unique().to_list()
+    assert crypto == [kycmod.load_kyc_config()["country_risk"]["crypto_tier"]]
 
 
 # ---------------------------------------------------------------- results JSON: TEST exposure

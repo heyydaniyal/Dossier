@@ -63,6 +63,8 @@ def country_tiers(countries: list[str], cfg: dict) -> dict[str, str]:
     out = {c: str(t) for c, t in zip(uniq, tiers, strict=True)}
     if cr["domestic"] in out:
         out[cr["domestic"]] = cr["domestic_tier"]
+    if cr.get("crypto") in out:
+        out[cr["crypto"]] = cr["crypto_tier"]
     return out
 
 

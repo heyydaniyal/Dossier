@@ -152,7 +152,10 @@ def stage_stats(
         .sort("account_key")
     )
     attrs = account_attributes(
-        interim_path(interim, variant, "accounts"), keys, kcfg["foreign_countries"]
+        interim_path(interim, variant, "accounts"),
+        keys,
+        kcfg["foreign_countries"],
+        kcfg["crypto_prefixes"],
     ).sort("account_key")
     write_parquet(attrs, P.keys)
     peer = attrs.select("account_key", pl.col("entity_type").alias("peer_group"))

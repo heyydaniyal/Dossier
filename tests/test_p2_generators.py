@@ -368,3 +368,52 @@ def test_calibration_firing_equals_runtime_firing():
     assert set(fast) == {r for r in active if active[r]}
     for r, v in fast.items():
         assert (slow[f"fired_{r}"].to_numpy() == v).all(), r
+
+
+# ---------------------------------------------------------------- bank-name formats (real, printed)
+
+
+def _accounts(tmp_path, names: list[str]) -> tuple:
+    from src.data.accounts import account_attributes
+
+    rows = [(str(i + 1), f"ACC{i}", n, "Corporation") for i, n in enumerate(names)]
+    p = tmp_path / "acc.parquet"
+    pl.DataFrame(
+        rows, schema=["bank_id", "account_number", "bank_name", "entity_type"], orient="row"
+    ).write_parquet(p)
+    keys = pl.DataFrame({"account_key": [f"0{i + 1}|ACC{i}" for i in range(len(names))]})
+    return account_attributes, p, keys
+
+
+def test_bank_name_forms_map_to_country(tmp_path):
+    fn, p, keys = _accounts(
+        tmp_path,
+        [
+            "Spain Bank #16393",
+            "Saudi Arabia Bank #7",
+            "Crytpo Bank #3",
+            "Hearthstone Bancorp",
+            "Savings Bank of Seattle",
+        ],
+    )
+    out = fn(p, keys, KCFG["foreign_countries"], KCFG["crypto_prefixes"]).sort("account_key")
+    assert out["bank_country"].to_list() == [
+        "Spain",
+        "Saudi Arabia",
+        "Crypto",
+        "United States",
+        "United States",
+    ]
+    assert out["bank_location"].to_list() == [
+        "Spain",
+        "Saudi Arabia",
+        "Crytpo",
+        "United States",
+        "United States",
+    ]
+
+
+def test_unknown_numbered_prefix_fails_loudly(tmp_path):
+    fn, p, keys = _accounts(tmp_path, ["Atlantis Bank #1", "Bank of Miami"])
+    with pytest.raises(DataError, match="unknown X"):
+        fn(p, keys, KCFG["foreign_countries"], KCFG["crypto_prefixes"])
