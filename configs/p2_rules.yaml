@@ -1,0 +1,83 @@
+# Phase 2 tasks 3-5: rule set, DECLARED BEFORE any rule is measured on data (commit this file
+# before the first run on HI-Medium; the commit date is the evidence).
+#
+# Design principle: every rule is standard transaction-monitoring logic (FATF / FinCEN typology
+# guidance, vendor scenario libraries), written from domain knowledge. No rule was derived from
+# the patterns file or from label rates. Known generator signatures (ACH = 86% of laundering,
+# DATA_CARD §7) are deliberately NOT encoded: ACH is a low-risk domestic channel in real banks.
+#
+# Each rule = one statistic per (account_key, day), computed from the visible window
+# [as_of - 24h, as_of), both roles (account as sender AND as receiver), self-transfers excluded
+# (same bank and account: internal book transfers are not customer flows).
+# Threshold = max(domain floor, TRAIN quantile tau of the statistic over active account-days).
+# The rule fires when statistic >= threshold (and statistic > 0).
+version: 1
+reporting_currency: US Dollar
+
+rules:
+  R01_LARGE_SINGLE_TXN:
+    stat: max_txn_usd
+    floor: 10000            # US CTR / EU 10k reporting threshold
+    why: "Single payment far above what the population normally moves."
+  R02_PEER_VOLUME_OUTLIER:
+    stat: volume_usd
+    floor: 10000
+    peer_group: entity_type # quantile per entity type (peer-group analysis); needs >= min_peer_rows
+    why: "Daily value moved (in + out) is extreme for accounts of the same entity type. Replaces
+      'spike vs own history', which needs > 24 h of history (L_max = 24 h)."
+  R03_STRUCTURING:
+    stat: n_near_threshold
+    band_usd: {lo: 9000, hi_exclusive: 10000}   # just below the 10k reporting threshold
+    floor: 2
+    why: "Several payments just under the reporting threshold on one day (smurfing)."
+  R04_FAN_IN:
+    stat: n_distinct_senders
+    floor: 5
+    why: "Many different counterparties pay into one account on one day (collection account)."
+  R05_FAN_OUT:
+    stat: n_distinct_receivers
+    floor: 5
+    why: "One account pays many different counterparties on one day (distribution account)."
+  R06_RAPID_IN_OUT:
+    stat: pass_through_usd
+    out_in_ratio: [0.8, 1.25]
+    floor: 5000
+    why: "Funds received and (almost) all sent on within the day, the outflow after the first
+      inflow: a pass-through / layering account. Statistic = min(in, out) when the ratio holds."
+  R07_HIGH_RISK_CHANNEL:
+    stat: high_risk_channel_usd
+    channels: [Cash, Bitcoin]
+    floor: 10000
+    why: "Value moved through cash or crypto, the two channels regulators rank highest risk."
+  R08_CROSS_CURRENCY_CHURN:
+    stat: n_cross_currency
+    floor: 3
+    why: "Repeated currency conversion on one day (a layering technique)."
+  R09_ROUND_AMOUNTS:
+    stat: n_round_amounts
+    round_unit: 1000        # amount in its ORIGINAL currency is a multiple of 1,000
+    min_amount: 1000
+    floor: 3
+    why: "Several exactly round payments on one day (invented, not commercial, amounts)."
+
+calibration:
+  period: TRAIN             # thresholds use TRAIN only (data-access matrix)
+  quantile_interpolation: higher   # the threshold is always an observed value
+  # One global sensitivity knob tau shared by all rules (fewer tuned parameters, easier to
+  # defend than nine separately tuned thresholds). Grid, strict to loose:
+  tau_grid: [0.99999, 0.99995, 0.9999, 0.9998, 0.9995, 0.999, 0.998, 0.995, 0.99]
+  min_peer_rows: 1000       # smaller entity-type groups use the all-accounts quantile
+  # Alert precision target (TRUE alerts / all alerts) on TRAIN. Industry reports 90-99% false
+  # positives in rule-based monitoring (i.e. precision 1-10%); 5% sits in the middle of the
+  # task band [2%, 10%] and still gives thousands of positive alerts for evaluation.
+  precision_target: 0.05
+  precision_band: [0.02, 0.10]
+  # choose the grid tau whose combined TRAIN precision is closest to target (in log space)
+  # among those inside the band; tie -> higher recall. None inside the band -> stop (no silent fix).
+  # Too-strong rule (task 5, "no rule near-perfect"), declared before measuring:
+  too_strong:
+    precision_above: 0.25   # 5x the target precision ...
+    recall_above: 0.05      # ... while catching more than 5% of all positive account-days
+  # action: loosen that rule's own tau one grid step at a time (more false positives) until it is
+  # no longer too strong; if the grid runs out, the rule is dropped. Every action is recorded.
+  max_layer_recall: 0.95    # the alert layer must miss some laundering (recall < 100%)

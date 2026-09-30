@@ -12,9 +12,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_PACKAGES = ["src/agents", "src/tools", "src/rag", "src/app"]
-# Ground-truth readers: the evaluation harness and the offline data audit (P1).
-FORBIDDEN_PREFIXES = ("src.eval", "scripts.audit")
+RUNTIME_PACKAGES = ["src/agents", "src/tools", "src/rag", "src/app", "src/alerts", "src/data"]
+# Ground-truth readers: the evaluation harness, the offline data audit (P1) and the offline P2
+# generators (TRAIN-label calibration, planted KYC explanations, simulated dispositions).
+FORBIDDEN_PREFIXES = ("src.eval", "scripts.audit", "scripts.p2")
 
 
 def _violations(py: Path) -> list[str]:
@@ -68,6 +69,8 @@ def test_detector_catches_violations(tmp_path: Path):
             "d.py": "import importlib\nimportlib.import_module('src.eval.labels')\n",
             "e.py": "from scripts.audit import discover\n",
             "f.py": "import scripts.audit.discover\n",
+            "g.py": "from scripts.p2 import plant\n",
+            "h.py": "import scripts.p2.dispositions\n",
         }
         for name, code in cases.items():
             f = d / name

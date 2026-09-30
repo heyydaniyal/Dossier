@@ -1,0 +1,70 @@
+# Phase 2 task 0: temporal boundaries. Decisions confirmed by Dani 2026-09-30.
+# status PROVISIONAL until the task-0 feasibility check (aggregate positive-alert counts per period,
+# computed AFTER rule thresholds are frozen) passes. Then status -> FROZEN, with the date.
+# The check may adjust boundaries ONCE. TEST may start later than 2022-09-13, never earlier (D4).
+version: 1
+status: PROVISIONAL
+frozen_on: null
+
+# Longest lookback of ANY rule (P2) or model feature (P3-P5). Measured back from as_of.
+# Arithmetic (16 usable days 09-01..09-16; TEST = last 4 days by D4 -> 12 pre-TEST days):
+#   pre-TEST days = burn-in (1) + 3 embargoes (3 x L_max/24h) + TRAIN + VALIDATION + CALIBRATION
+#   L_max = 24 h -> 12 - 1 - 3 = 8 days for the three fitted periods (workable)
+#   L_max = 48 h -> 12 - 1 - 6 = 5 days, and burn-in would need 2 days -> 4 days (not workable)
+l_max_hours: 24
+
+# Alert window = one calendar day (UTC). Daily batch: the rules run at as_of = next day 00:00.
+# Visibility (frozen P0 tie rule): a rule for an alert with as_of T sees exactly the transactions
+# with  T - l_max <= ts < T. A transaction at ts == T belongs to the next window.
+window:
+  length_hours: 24
+  anchor: "calendar day, 00:00 UTC"
+  as_of: "window start + 24 h"
+  window_end: "as_of - 1 s (inclusive end; timestamps have minute resolution)"
+
+# 2022-09-01 is excluded from every period: (1) it is the generator warm-up day (4.47M txns,
+# 1.38M in the first hour, see DATA_CARD §4.6), (2) synthetic KYC 'expected activity' is derived
+# from it, so it must lie before every as_of.
+burn_in:
+  start: "2022-09-01T00:00:00+00:00"
+  end: "2022-09-02T00:00:00+00:00"
+
+# Half-open [start, end) intervals of WINDOW START times. An alert belongs to the period that
+# contains its window_start. Calendar option B (confirmed 2026-09-30).
+# Weekdays: 09-02 Fri | 03 Sat | 04 Sun | 05 Mon | 06 Tue | 07 Wed | 08 Thu | 09 Fri | 10 Sat |
+#           11 Sun | 12 Mon | 13 Tue | 14 Wed | 15 Thu | 16 Fri
+periods:
+  TRAIN:       {start: "2022-09-02T00:00:00+00:00", end: "2022-09-06T00:00:00+00:00"}  # Fri-Mon, 4 d
+  EMBARGO_1:   {start: "2022-09-06T00:00:00+00:00", end: "2022-09-07T00:00:00+00:00"}  # Tue
+  VALIDATION:  {start: "2022-09-07T00:00:00+00:00", end: "2022-09-08T00:00:00+00:00"}  # Wed, 1 d
+  EMBARGO_2:   {start: "2022-09-08T00:00:00+00:00", end: "2022-09-09T00:00:00+00:00"}  # Thu
+  CALIBRATION: {start: "2022-09-09T00:00:00+00:00", end: "2022-09-12T00:00:00+00:00"}  # Fri-Sun, 3 d
+  EMBARGO_3:   {start: "2022-09-12T00:00:00+00:00", end: "2022-09-13T00:00:00+00:00"}  # Mon
+  TEST:        {start: "2022-09-13T00:00:00+00:00", end: "2022-09-17T00:00:00+00:00"}  # Tue-Fri, 4 d
+
+# Known, accepted limitations (reported, not fixed):
+#  - CALIBRATION is weekend-heavy (2 of 3 days), TEST has no weekend; weekend laundering rate is
+#    2.3x weekday (DATA_CARD §4.6). P5 must check calibration by weekday/weekend and report drift.
+#  - Laundering attempts last ~4.6 days (median), so the same attempt can appear on both sides of
+#    every 24 h embargo. Regime A accepts this; regime B (unseen accounts) is the stricter check.
+
+# AGENT-DEV / AGENT-TEST group split inside TEST (method frozen here, executed in src/eval).
+agent_split:
+  unit: "connected component of {TEST-alerted accounts, pattern attempts, unattributed laundering txns in TEST}"
+  assignment: "keyed hash of the component (min keyed hash of member account_keys) -> uniform in [0,1)"
+  hash_key: "dossier-p2-agent-split-v1"
+  fraction_agent_test: 0.5
+
+# Feasibility gates (declared BEFORE any count is seen). Counts are positive ALERTS.
+# TEST must support P6: Tier A with N up to 150 per group, stratified -> >= 150 positives in each
+# of AGENT-DEV and AGENT-TEST; VALIDATION needs a usable PR-AUC; CALIBRATION needs >= 30
+# positives in each of 10 reliability bins.
+feasibility:
+  min_positive_alerts:
+    TRAIN: 1000
+    VALIDATION: 200
+    CALIBRATION: 300
+    TEST: 400
+  min_positive_alerts_per_agent_group: 150
+  max_share_of_test_positives_in_one_component: 0.20
+  regime_b_min_positive_alerts: 100   # below this, regime B is reported as underpowered (not a gate)

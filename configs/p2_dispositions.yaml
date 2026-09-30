@@ -1,0 +1,33 @@
+# Phase 2 task 9: simulated historical analyst dispositions. DECLARED BEFORE generation.
+# Generated from ground truth + seeded noise ONLY (never model scores or agent outputs).
+# Only TRAIN, VALIDATION and CALIBRATION alerts get a disposition; TEST alerts never do.
+# Records carry exactly {alert_id, account_key, disposition, closed_at} (HistoricalDisposition).
+version: 1
+seed: 20260930
+periods: [TRAIN, VALIDATION, CALIBRATION]
+
+# P(analyst confirms as suspicious), before anchoring:
+error_model:
+  sensitivity: 0.85            # true positives confirmed (15% of laundering alerts closed wrongly)
+  false_confirm_rate: 0.02     # legitimate alerts wrongly confirmed
+  hard_cases:
+    # H1: laundering with no recognisable shape: all its laundering txns that day are
+    #     unattributed ("natural" laundering) or of typology RANDOM / BIPARTITE (a random walk
+    #     or many-to-many trade looks like normal business). Analysts miss these more often.
+    hard_typologies: [RANDOM, BIPARTITE]
+    hard_sensitivity: 0.70
+    # H2: near-threshold amounts (R03_STRUCTURING fired): legitimate alerts are confirmed more
+    #     often (the amounts look deliberate), laundering ones are not easier.
+    near_threshold_rule: R03_STRUCTURING
+    near_threshold_false_confirm_rate: 0.05
+  # Correlated analyst behaviour: anchoring on the NUMBER of triggered rules (an observable alert
+  # feature). logit P(confirm) += anchoring_beta * (n_rules_triggered - 1).
+  anchoring_beta: 0.5
+
+# closed_at = as_of + handling delay (hours), lognormal, clipped, floored to the minute.
+# Time-compressed: real SLAs are ~30 days; the data span is 16 days.
+handling_delay_hours:
+  closed_legitimate: {median: 18, sigma: 0.6}
+  confirmed_suspicious: {median: 48, sigma: 0.6}
+  min: 1
+  max: 168

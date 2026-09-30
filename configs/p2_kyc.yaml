@@ -1,0 +1,127 @@
+# Phase 2 tasks 6-7: synthetic KYC. DECLARED BEFORE any KYC attribute is measured on data
+# (commit before the first HI-Medium run). Everything here is synthetic unless marked REAL.
+version: 1
+seed: 20260930
+kyc_as_of: "2022-09-02T00:00:00+00:00"   # profiles are what the bank knew before the first window
+
+# ---------------------------------------------------------------- base attributes (no labels)
+# REAL: entity_type (accounts file), bank_location / bank_country (parsed from bank name).
+# DATA-DERIVED: expected_activity_band from BURN-IN day activity (2022-09-01 < every as_of).
+# SYNTHETIC: sector_or_occupation, onboarding_date, country_risk tiers, customer_risk_rating.
+
+activity_band:
+  bands: [low, medium, high, very_high]
+  # percentile of burn-in USD volume WITHIN the account's entity type -> band
+  cuts: [0.50, 0.90, 0.99]
+  noise_prob: 0.25          # declared activity is imprecise: shift one band up or down
+  prior_if_inactive: {low: 0.50, medium: 0.35, high: 0.12, very_high: 0.03}
+
+onboarding:
+  start: "2005-01-01"
+  end: "2022-08-31"         # uniform over days; before the data span
+
+sectors:                    # business entity types; weight, risk tier
+  professional_services: {w: 14, risk: low}
+  manufacturing: {w: 10, risk: low}
+  retail_non_cash: {w: 10, risk: low}
+  it_services: {w: 8, risk: low}
+  healthcare: {w: 6, risk: low}
+  construction_contractor: {w: 7, risk: medium}
+  logistics: {w: 6, risk: low}
+  agriculture: {w: 4, risk: low}
+  wholesale_trade: {w: 8, risk: medium}
+  import_export_trading: {w: 5, risk: medium}
+  real_estate_agency: {w: 5, risk: medium}
+  hospitality_hotel: {w: 4, risk: medium}
+  payroll_service: {w: 2, risk: medium}
+  ecommerce_marketplace: {w: 3, risk: medium}
+  charity_non_profit: {w: 2, risk: medium}
+  escrow_title_company: {w: 1, risk: medium}
+  restaurant: {w: 3, risk: high}
+  convenience_store: {w: 2, risk: high}
+  car_wash: {w: 1, risk: high}
+  money_services_business: {w: 1, risk: high}
+  payment_processor: {w: 1, risk: high}
+  precious_metals_dealer: {w: 1, risk: high}
+  crypto_exchange: {w: 1, risk: high}
+  foreign_exchange_bureau: {w: 1, risk: high}
+occupations:                # entity type Individual
+  salaried_employee: {w: 50, risk: low}
+  civil_servant: {w: 10, risk: low}
+  retiree: {w: 12, risk: low}
+  student: {w: 6, risk: low}
+  self_employed_trader: {w: 12, risk: medium}
+  property_investor: {w: 6, risk: medium}
+  business_owner_cash_intensive: {w: 4, risk: high}
+public_sector_types: [Country]            # -> government_public_body, risk low
+individual_types: [Individual]
+
+country_risk:
+  domestic: United States                 # banks named after a city are domestic (DATA_CARD §9)
+  domestic_tier: low
+  foreign_tier_probs: {low: 0.60, medium: 0.30, high: 0.10}   # synthetic, per country, seeded
+
+customer_risk_rating:       # points: sector/occupation risk (0/1/2) + country risk (0/1/2)
+  very_high_activity_point: 1           #  + 1 if expected band is very_high
+  noise_prob: 0.10                      #  then +/-1 with this probability
+  cuts: {medium_at: 2, high_at: 3}      # <2 low, 2 medium, >=3 high
+
+# ---------------------------------------------------------------- task 7: planted explanations
+# The ONLY step that reads labels (scripts/p2/plant.py, declared firewall exception).
+# Label-BALANCED: the same fraction of legitimate and laundering alerted accounts receive a
+# profile that plausibly explains the behaviour that triggered their FIRST alert. The profile
+# therefore creates doubt for the Defence to argue without telling anyone which side is right.
+planting:
+  rate_legitimate_alerted: 0.30
+  rate_laundering_alerted: 0.30
+  planted_band_probs: {high: 0.6, very_high: 0.4}
+  individual_occupation: business_owner_cash_intensive
+  archetypes:               # rule that fired -> sectors whose normal business looks like it
+    R01_LARGE_SINGLE_TXN: [real_estate_agency, wholesale_trade, precious_metals_dealer]
+    R02_PEER_VOLUME_OUTLIER: [wholesale_trade, payment_processor, logistics]
+    R03_STRUCTURING: [convenience_store, restaurant]
+    R04_FAN_IN: [payment_processor, ecommerce_marketplace, charity_non_profit]
+    R05_FAN_OUT: [payroll_service, wholesale_trade]
+    R06_RAPID_IN_OUT: [escrow_title_company, payment_processor, money_services_business]
+    R07_HIGH_RISK_CHANNEL: [restaurant, car_wash, convenience_store, crypto_exchange]
+    R08_CROSS_CURRENCY_CHURN: [import_export_trading, foreign_exchange_bureau]
+    R09_ROUND_AMOUNTS: [real_estate_agency, construction_contractor]
+
+# ---------------------------------------------------------------- task 6: leakage ceilings
+# Declared BEFORE measurement. Alert level: fit on TRAIN alerts, evaluate on VALIDATION alerts,
+# target = is_true_positive, PR-AUC = average precision, prev = VALIDATION alert prevalence.
+# Reasoning: synthetic attributes are generated without labels and planting is label-balanced,
+# so their expected lift is 1.0. The REAL attributes measured in P1 (entity type) have lift
+# 0.6-1.5. A KYC-only model above 2x the base rate would mean a clue, not context.
+ceilings:
+  kyc_only_pr_auc_max_multiple_of_prev: 2.0              # C1: all KYC attributes
+  synthetic_increment_max_multiple_of_prev: 0.25         # C2: PR-AUC(all KYC) - PR-AUC(real+data-derived KYC)
+  txn_plus_kyc_increment_max_multiple_of_prev: 0.50      # C3: PR-AUC(txn+KYC) - PR-AUC(txn only)
+  txn_synthetic_increment_max_multiple_of_prev: 0.25     # C4: PR-AUC(txn+KYC) - PR-AUC(txn+real KYC)
+  model: "HistGradientBoostingClassifier(max_iter=200, learning_rate=0.1, max_leaf_nodes=31, early_stopping=False, random_state=0)"
+  bootstrap_reps: 200       # paired bootstrap on VALIDATION, reported only (the gate is the point estimate)
+
+attribute_groups:
+  real_or_data_derived: [entity_type, bank_country, country_risk, expected_activity_band]
+  synthetic: [sector_or_occupation, onboarding_age_days, customer_risk_rating]
+
+# Foreign country names recognised in bank names ("<Country> Bank #n"). Any other location is
+# treated as a US city. The run prints every distinct location with its account count so the
+# list can be checked; an unexpected location is a finding, not a silent default.
+foreign_countries: [Afghanistan, Albania, Algeria, Andorra, Angola, Argentina, Armenia, Australia,
+  Austria, Azerbaijan, Bahamas, Bahrain, Bangladesh, Barbados, Belarus, Belgium, Belize, Benin,
+  Bhutan, Bolivia, Bosnia, Botswana, Brazil, Brunei, Bulgaria, Burkina Faso, Burundi, Cambodia,
+  Cameroon, Canada, Chad, Chile, China, Colombia, Congo, Costa Rica, Croatia, Cuba, Cyprus,
+  Czech Republic, Czechia, Denmark, Djibouti, Dominican Republic, Ecuador, Egypt, El Salvador,
+  Estonia, Ethiopia, Fiji, Finland, France, Gabon, Gambia, Germany, Ghana, Greece, Guatemala,
+  Guinea, Guyana, Haiti, Honduras, Hong Kong, Hungary, Iceland, India, Indonesia, Iran, Iraq,
+  Ireland, Israel, Italy, Jamaica, Japan, Jordan, Kazakhstan, Kenya, Korea, South Korea, Kuwait,
+  Kyrgyzstan, Laos, Latvia, Lebanon, Liberia, Libya, Liechtenstein, Lithuania, Luxembourg, Macau,
+  Madagascar, Malawi, Malaysia, Maldives, Mali, Malta, Mauritania, Mauritius, Mexico, Moldova,
+  Monaco, Mongolia, Montenegro, Morocco, Mozambique, Myanmar, Namibia, Nepal, Netherlands,
+  New Zealand, Nicaragua, Niger, Nigeria, North Korea, North Macedonia, Norway, Oman, Pakistan,
+  Panama, Paraguay, Peru, Philippines, Poland, Portugal, Qatar, Romania, Russia, Rwanda,
+  Saudi Arabia, Senegal, Serbia, Singapore, Slovakia, Slovenia, Somalia, South Africa, Spain,
+  Sri Lanka, Sudan, Suriname, Sweden, Switzerland, Syria, Taiwan, Tajikistan, Tanzania, Thailand,
+  Togo, Trinidad, Tunisia, Turkey, Turkmenistan, Uganda, Ukraine, United Arab Emirates, UAE,
+  United Kingdom, UK, Uruguay, Uzbekistan, Venezuela, Vietnam, Yemen, Zambia, Zimbabwe]

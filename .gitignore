@@ -24,3 +24,6 @@ demo_store/
 *_accounts.csv
 data/
 !src/data/
+
+# P2 regeneration output
+*.verify.json
