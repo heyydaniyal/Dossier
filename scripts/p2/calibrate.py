@@ -7,6 +7,8 @@ threshold_r = max(floor_r, TRAIN quantile_tau(stat_r)) (per peer group for R02).
   Revision 1 (method per_rule, approved 2026-09-30): each rule's own tau = the loosest grid level
     where the rule alone reaches precision >= target with >= per_rule_min_true_alerts true
     alerts; rules with no such level are dropped.
+  Revision 2 (approved 2026-09-30): same, but the per-rule minimum is per_rule_min_precision
+    (the band floor, 2%) instead of the layer target: fan-in no longer crowds out other rules.
 Then, for both: any 'too strong' rule is loosened one grid step at a time (dropped if the grid
 runs out); finally the band, layer-recall ceiling and minimum rule count are checked. Anything
 outside -> CalibrationError (no silent fix: the result is printed and a human decides).
@@ -120,6 +122,7 @@ def evaluate_arrays(a: Arrays, thr: dict, cfg: dict, n_pos_total: int, detail: b
             "precision": _sig(tp / na) if na else None,
             "recall": _sig(tp / n_pos_total) if n_pos_total else None,
             "n_alerts_only_this_rule": int((m & (n_rules == 1)).sum()),
+            "n_true_only_this_rule": int((m & (n_rules == 1) & a.pos).sum()),
         }
     res = {
         "n_alerts": n_al,
@@ -184,7 +187,7 @@ def _select_per_rule(a: Arrays, cfg: dict, n_pos: int, grid: list, rules: list) 
     """Revision 1: each rule's own tau = the LOOSEST grid level where the rule alone reaches
     precision >= target with >= per_rule_min_true_alerts true alerts; otherwise it is dropped."""
     cal = cfg["calibration"]
-    target = cal["precision_target"]
+    target = cal.get("per_rule_min_precision", cal["precision_target"])
     n_min = cal["per_rule_min_true_alerts"]
     taus, active, actions, table = {}, {}, [], []
     for r in rules:

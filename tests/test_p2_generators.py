@@ -388,7 +388,7 @@ def test_revision1_picks_the_loosest_level_meeting_the_target_and_drops_noise():
         assert act[noise]["action"].startswith("drop"), noise
         assert not res["rules"][noise]["active"]
     # the chosen level meets the target and nothing looser does
-    target = RCFG["calibration"]["precision_target"]
+    target = RCFG["calibration"]["per_rule_min_precision"]
     n_min = RCFG["calibration"]["per_rule_min_true_alerts"]
     tab = [t for t in res["tau_curve"] if t["rule"] == "R04_FAN_IN"]
     chosen = act["R04_FAN_IN"]["tau"]
@@ -469,3 +469,16 @@ def test_unknown_numbered_prefix_fails_loudly(tmp_path):
     fn, p, keys = _accounts(tmp_path, ["Atlantis Bank #1", "Bank of Miami"])
     with pytest.raises(DataError, match="unknown X"):
         fn(p, keys, KCFG["foreign_countries"], KCFG["crypto_prefixes"])
+
+
+def test_revision2_uses_the_band_floor_per_rule_not_the_layer_target():
+    """R05 in the synthetic data is ~6% precise: kept at a 2% floor, dropped at an 8% floor (R04 ~10% stays)."""
+    st, npos = _per_rule_stats()
+    base = dict(RCFG["calibration"], min_active_rules=1)
+    assert RCFG["calibration"]["per_rule_min_precision"] == RCFG["calibration"]["precision_band"][0]
+    keep = cal.calibrate(st, dict(RCFG, calibration=base), npos)
+    drop = cal.calibrate(st, dict(RCFG, calibration=dict(base, per_rule_min_precision=0.08)), npos)
+    assert keep["rules"]["R05_FAN_OUT"]["active"]
+    assert not drop["rules"]["R05_FAN_OUT"]["active"]
+    per = keep["train_metrics"]["per_rule"]["R04_FAN_IN"]
+    assert 0 <= per["n_true_only_this_rule"] <= per["n_true"]

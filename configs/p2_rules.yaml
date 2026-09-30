@@ -83,7 +83,19 @@ calibration:
   # no such level is dropped (recorded). per_rule_min_true_alerts = 10 was chosen AFTER seeing the
   # diagnostics (with 20, R01 would drop and only 5 rules would remain); stated openly.
   # Everything else is unchanged: band check, too-strong check, recall ceiling, feasibility gates.
+  #
+  # ---- REVISION 2 (2026-09-30, approved by Dani) --------------------------------------------
+  # Revision 1 result on HI-Medium TRAIN (p2_results.json, run 2026-09-30 10:34 UTC): precision
+  # 5.0%, recall 6.4%, ~3,200 alerts/day, but fan-in produced 90% of the true alerts (~16 true
+  # non-fan-in alerts/day) and VALIDATION was projected at ~218 true alerts vs its gate of 200.
+  # Cause: revision 1 required EVERY rule to reach the LAYER target (5%) on its own, which only
+  # fan-in can do at volume. Revision 2: a rule must reach the band FLOOR (2%) on its own; the
+  # layer must still land in the band. Expected on TRAIN (per-rule table, before overlaps):
+  # ~3.5% precision, ~65 true non-fan-in alerts/day, VALIDATION ~290. Checked on the real
+  # calibrate output BEFORE build. Realism: alert-to-SAR 2.8% (MBCA survey) and ~4% (BPI, largest
+  # US banks). Decided on TRAIN only; nothing from VALIDATION/CALIBRATION/TEST seen.
   method: per_rule
+  per_rule_min_precision: 0.02   # revision 2 (revision 1 used precision_target = 0.05)
   per_rule_min_true_alerts: 10
   min_active_rules: 6       # task 3: 6-10 rules
   # Too-strong rule (task 5, "no rule near-perfect"), declared before measuring:

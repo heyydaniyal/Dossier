@@ -102,7 +102,17 @@ The per-rule diagnostic (`docs/p2/p2_train_diagnostics.json`, TRAIN only) showed
    - **Fan-in produces about 72% of the true alerts**, because most laundering account-days are single "legs" that look ordinary, and only hub accounts stand out.
    - Laundering the rules miss is out of scope: the system triages alerts, it does not search for un-alerted laundering. This is reported as a limitation.
 
-**Note for P6 (approved with revision 1):** the evaluation sample is **stratified by triggered rule**, and agent results are reported per rule. Otherwise fan-in cases would dominate the agent evaluation.
+**Revision 2** (approved by Dani 2026-09-30, decided on TRAIN only, before any build):
+- **What revision 1 gave on TRAIN** (measured):
+  - precision 5.0%, recall 6.4%, about 3,200 alerts/day;
+  - **fan-in produced 90% of the true alerts**, only about 16 true non-fan-in alerts per day;
+  - VALIDATION was projected at about 218 true alerts, against a gate of 200.
+- **Cause:** revision 1 required *every rule* to reach the *layer* target of 5%, and only fan-in manages that at volume.
+- **Change:** a rule must now reach the band **floor** of 2% on its own (`per_rule_min_precision`). The layer must still land in [2%, 10%], and everything else is unchanged.
+- **Expected from the per-rule table**, before overlaps: about 3.5% precision, about 65 true non-fan-in alerts/day, VALIDATION about 290. This is checked on the real `calibrate` output **before** `build`.
+- **Realism check:** real banks report 2.8% of alerts becoming a SAR (MBCA survey) and about 4% (BPI, largest US banks).
+
+**Note for P6 (approved with revision 1, refined 2026-09-30):** the evaluation sample is **stratified by triggered rule**, at least into two groups, *fan-in* and *other rules*, and agent results are reported per group. Per-rule strata are used only where there are enough real cases. The exact allocation is set in P6.
 
 Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 - TRAIN and VALIDATION, per rule: volume, precision, recall, alerts only this rule caught, and pairwise overlap P(b | a).
