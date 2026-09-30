@@ -3,8 +3,12 @@
 # computed AFTER rule thresholds are frozen) passes. Then status -> FROZEN, with the date.
 # The check may adjust boundaries ONCE. TEST may start later than 2022-09-13, never earlier (D4).
 version: 1
-status: PROVISIONAL
-frozen_on: null
+status: FROZEN
+frozen_on: "2026-09-30"
+# Frozen after: feasibility check on the final build (all gates pass or are documented deviations),
+# and `run_p2 all --verify` printed REPRODUCED (Dani's laptop, 2026-09-30). Boundaries were not
+# adjusted (the one permitted adjustment was not used). Changing anything below needs Dani's
+# decision and invalidates every P2+ artefact.
 
 # Longest lookback of ANY rule (P2) or model feature (P3-P5). Measured back from as_of.
 # Arithmetic (16 usable days 09-01..09-16; TEST = last 4 days by D4 -> 12 pre-TEST days):

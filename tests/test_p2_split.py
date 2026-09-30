@@ -78,7 +78,7 @@ def _write(tmp: Path, mut) -> Path:
         (lambda c: c["periods"]["TRAIN"].update(end="2022-09-05T00:00:00+00:00"), "gap"),
         (lambda c: c["periods"]["TEST"].update(end="2022-09-18T00:00:00+00:00"), "span end"),
         (lambda c: c["periods"]["TRAIN"].update(start="2022-09-02T00:00:00"), "timezone"),
-        (lambda c: c.update(status="FROZEN"), "frozen_on"),
+        (lambda c: c.update(status="FROZEN", frozen_on=None), "frozen_on"),
     ],
 )
 def test_violations_are_rejected(tmp_path: Path, mut, msg):
@@ -95,3 +95,10 @@ def test_test_start_never_before_d4(tmp_path: Path):
 
     with pytest.raises(SplitError, match="D4"):
         load_split(_write(tmp_path, earlier))
+
+
+def test_committed_split_is_frozen():
+    from src.data.periods import load_split
+
+    s = load_split()
+    assert s.status == "FROZEN" and s.raw["frozen_on"] == "2026-09-30"

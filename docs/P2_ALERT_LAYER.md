@@ -37,7 +37,7 @@ Accepted limitations:
 - CALIBRATION is weekend-heavy, while TEST has no weekend. P5 checks calibration by weekday/weekend.
 - The median attempt lasts 4.6 days, so one attempt can span an embargo. Regime A accepts this; regime B is the stricter check.
 
-## 2. Alert unit (task 1, FROZEN at phase end)
+## 2. Alert unit (task 1, FROZEN 2026-09-30)
 
 - **One alert = (account_key, calendar day), created when ≥ 1 rule fires.**
 - Timing: `window_start` = D 00:00, `window_end` = D 23:59:59, `as_of = created_at` = D+1 00:00.
@@ -129,6 +129,8 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
   - Re-tuning the rules after the TEST feasibility counts were computed would be harder to defend.
   - 721 is enough for the P4 model.
   - The gate value itself is unchanged, and `tests/test_p2_results_facts.py` accepts only deviations recorded with the exact measured value.
+- **Result (final build, 2026-09-30):** positive alerts TRAIN 721, VALIDATION 213, CALIBRATION 616, TEST 1,020 (AGENT-DEV 522, AGENT-TEST 498); largest TEST component 0.88% of TEST positives; regime B 869 positives. Every gate passes except the documented TRAIN deviation. The one permitted boundary adjustment was **not** used.
+- **FROZEN 2026-09-30**, after `run_p2 all --verify` printed REPRODUCED on Dani's laptop (with one note: `p2_split.yaml` changed after calibration, which was the deviation text only).
 
 ## 7. AGENT-DEV / AGENT-TEST
 
