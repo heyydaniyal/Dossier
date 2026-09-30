@@ -1,0 +1,109 @@
+# P2: rule thresholds calibrated on TRAIN by scripts.p2.run_p2 calibrate. Do not edit.
+# Metrics of this calibration are in docs/p2/p2_results.json (calibration).
+version: 1
+status: CALIBRATED_ON_TRAIN
+calibrated_on:
+  period: TRAIN
+  start: '2022-09-02T00:00:00+00:00'
+  end_exclusive: '2022-09-06T00:00:00+00:00'
+inputs_sha256:
+  p2_rules.yaml: 68fadb1b2f7d6f70e09e80b910e96858413d9c27a0ce5b32a00464ad04d8ce39
+  p2_split.yaml: a4ac2a350f3465e9b9277c799c5fbe651197e2fd9e3791b6add1f61977f9ae50
+  p2_fx_usd_per_unit.yaml: 8df020502074b5d73c5718e8fa613a1ec844f39d815a10ee373bae040cac25df
+method: per_rule
+tau_global: null
+rules:
+  R01_LARGE_SINGLE_TXN:
+    active: true
+    tau: 0.999
+    stat: max_txn_usd
+    floor: 10000.0
+    threshold: 127770311.6
+  R02_PEER_VOLUME_OUTLIER:
+    active: true
+    tau: 0.998
+    stat: volume_usd
+    floor: 10000.0
+    by_peer:
+      Corporation: 80804677.68
+      Country: 70134249.53
+      Individual: 23103853.56
+      Partnership: 77426222.28
+      Sole Proprietorship: 79796595.36
+    default: 79204689.71
+  R03_STRUCTURING:
+    active: true
+    tau: 0.99995
+    stat: n_near_threshold
+    floor: 2.0
+    threshold: 3.0
+  R04_FAN_IN:
+    active: true
+    tau: 0.0
+    stat: n_distinct_senders
+    floor: 5.0
+    threshold: 5.0
+  R05_FAN_OUT:
+    active: true
+    tau: 0.9995
+    stat: n_distinct_receivers
+    floor: 5.0
+    threshold: 12.0
+  R06_RAPID_IN_OUT:
+    active: false
+    tau: 0.99999
+    stat: pass_through_usd
+    floor: 5000.0
+    threshold: 13758656.59
+  R07_HIGH_RISK_CHANNEL:
+    active: true
+    tau: 0.999
+    stat: high_risk_channel_usd
+    floor: 10000.0
+    threshold: 33114128.86
+  R08_CROSS_CURRENCY_CHURN:
+    active: false
+    tau: 0.99999
+    stat: n_cross_currency
+    floor: 3.0
+    threshold: 5.0
+  R09_ROUND_AMOUNTS:
+    active: false
+    tau: 0.99999
+    stat: n_round_amounts
+    floor: 3.0
+    threshold: 3.0
+actions:
+- rule: R01_LARGE_SINGLE_TXN
+  action: select
+  tau: 0.999
+- rule: R02_PEER_VOLUME_OUTLIER
+  action: select
+  tau: 0.998
+- rule: R03_STRUCTURING
+  action: select
+  tau: 0.99995
+- rule: R04_FAN_IN
+  action: select
+  tau: 0.0
+- rule: R05_FAN_OUT
+  action: select
+  tau: 0.9995
+- rule: R06_RAPID_IN_OUT
+  action: drop_no_level_meets_target
+  best_seen:
+    tau: 0.99999
+    precision: 0.05882352941
+    n_true: 2
+- rule: R07_HIGH_RISK_CHANNEL
+  action: select
+  tau: 0.999
+- rule: R08_CROSS_CURRENCY_CHURN
+  action: drop_no_level_meets_target
+  best_seen:
+    tau: 0.0
+    precision: 0.005291005291
+    n_true: 2
+- rule: R09_ROUND_AMOUNTS
+  action: drop_no_level_meets_target
+  best_seen: null

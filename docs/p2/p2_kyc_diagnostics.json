@@ -1,0 +1,109 @@
+{
+  "scope": "TRAIN and VALIDATION only",
+  "val_prevalence": 0.05122655123,
+  "A_kyc_only_pr_auc": {
+    "real (entity type, country, country risk)": {
+      "pr_auc": 0.06354952389,
+      "x_prev": 1.240558311
+    },
+    "+ expected_activity_band": {
+      "pr_auc": 0.06966855225,
+      "x_prev": 1.36000864
+    },
+    "+ sector_or_occupation": {
+      "pr_auc": 0.08703653138,
+      "x_prev": 1.699051162
+    },
+    "+ customer_risk_rating": {
+      "pr_auc": 0.087085412,
+      "x_prev": 1.700005367
+    },
+    "+ onboarding_age_days (= all KYC)": {
+      "pr_auc": 0.1345916697,
+      "x_prev": 2.627381045
+    },
+    "sector_or_occupation alone": {
+      "pr_auc": 0.06392907781,
+      "x_prev": 1.247967632
+    },
+    "expected_activity_band alone": {
+      "pr_auc": 0.06516000098,
+      "x_prev": 1.271996639
+    },
+    "sector_matches_rule flag alone": {
+      "pr_auc": 0.05288634798,
+      "x_prev": 1.032401103
+    }
+  },
+  "B_rules_vs_rules_plus_kyc": {
+    "fired rules only": {
+      "pr_auc": 0.1350978483,
+      "x_prev": 2.637262222
+    },
+    "fired rules + all KYC": {
+      "pr_auc": 0.1575872548,
+      "x_prev": 3.076280777
+    },
+    "fired rules + sector_matches_rule": {
+      "pr_auc": 0.1405122197,
+      "x_prev": 2.742956852
+    }
+  },
+  "C_sector_matches_rule_rate": {
+    "true_alerts": 0.3361884368,
+    "false_alerts": 0.3718485635,
+    "by_rule": {
+      "R01_LARGE_SINGLE_TXN": {
+        "true_rate": 0.4471544715,
+        "false_rate": 0.4463350785,
+        "alert_precision": 0.03119452194
+      },
+      "R02_PEER_VOLUME_OUTLIER": {
+        "true_rate": 0.3473684211,
+        "false_rate": 0.4277286136,
+        "alert_precision": 0.02378865657
+      },
+      "R03_STRUCTURING": {
+        "true_rate": 0.2207792208,
+        "false_rate": 0.3236514523,
+        "alert_precision": 0.2421383648
+      },
+      "R04_FAN_IN": {
+        "true_rate": 0.3346883469,
+        "false_rate": 0.3346129239,
+        "alert_precision": 0.05573176257
+      },
+      "R05_FAN_OUT": {
+        "true_rate": 0.2150537634,
+        "false_rate": 0.3856948846,
+        "alert_precision": 0.04039965248
+      },
+      "R07_HIGH_RISK_CHANNEL": {
+        "true_rate": 0.2471910112,
+        "false_rate": 0.4305764411,
+        "alert_precision": 0.0218190733
+      }
+    }
+  },
+  "D_future_alert_hint": {
+    "n_accounts_without_train_alert": 2058811,
+    "archetype_sector": {
+      "share_of_accounts": 0.4715046694,
+      "val_alert_rate_if_flag": 0.001586420243,
+      "val_alert_rate_if_not": 0.0008510466219,
+      "val_alert_lift": 1.864081476,
+      "val_true_alert_rate_if_flag": 0.0001194965897,
+      "val_true_alert_rate_if_not": 6.341492107e-05,
+      "val_true_alert_lift": 1.884360773
+    },
+    "high_band": {
+      "share_of_accounts": 0.1454091706,
+      "val_alert_rate_if_flag": 0.003093162308,
+      "val_alert_rate_if_not": 0.0008752780002,
+      "val_alert_lift": 3.533919859,
+      "val_true_alert_rate_if_flag": 0.0002271436684,
+      "val_true_alert_rate_if_not": 6.649839352e-05,
+      "val_true_alert_lift": 3.415776778
+    }
+  }
+}

@@ -1,0 +1,25 @@
+# P2: usd_per_unit derived on TRAIN from the dataset's own cross-currency txns (D6).
+# Written by the P2 driver (run_p2); do not edit by hand. P3+ read this file.
+reporting_currency: US Dollar
+fitted_on:
+  start: '2022-09-02T00:00:00+00:00'
+  end_exclusive: '2022-09-06T00:00:00+00:00'
+n_pairs: 199
+n_cross_currency_txns: 104989
+max_abs_log_residual: 0.01252668555
+usd_per_unit:
+  Australian Dollar: 0.7078160976
+  Bitcoin: 11866.19363
+  Brazil Real: 0.1771006808
+  Canadian Dollar: 0.7579766993
+  Euro: 1.171847668
+  Mexican Peso: 0.04729689798
+  Ruble: 0.01285287373
+  Rupee: 0.01361586598
+  Saudi Riyal: 0.2665891775
+  Shekel: 0.2961210779
+  Swiss Franc: 1.092899885
+  UK Pound: 1.291619072
+  US Dollar: 1.0
+  Yen: 0.009487674782
+  Yuan: 0.1493067985
