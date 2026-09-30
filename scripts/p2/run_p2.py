@@ -532,6 +532,8 @@ def kyc_block(
     block["leakage_unseen_accounts_report_only"] = kyc_leakage.leakage_tests(
         pre_alerts, pre_labels, kyc, kcfg, ids, unseen_only=True
     )
+    _step("identity guard on KYC (seen vs unseen VALIDATION accounts)")
+    block["identity_guard"] = kyc_leakage.kyc_identity_guard(pre_alerts, pre_labels, kyc, kcfg, ids)
     return block
 
 

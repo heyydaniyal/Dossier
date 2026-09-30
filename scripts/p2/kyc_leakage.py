@@ -8,6 +8,8 @@ Alert level. Fit on TRAIN alerts, evaluate on VALIDATION alerts. PR-AUC = averag
 The gate is the point estimate; paired bootstrap 95% intervals are reported alongside.
 unseen_only=True repeats the test on VALIDATION alerts of accounts with no TRAIN alert (report
 only, not a gate): it separates account memorisation from a planted clue.
+kyc_identity_guard applies src/eval/identity_guard to KYC as a feature group on top of the
+transaction features (C3 design), seen vs unseen VALIDATION accounts, one fit per model.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import average_precision_score
 
 from src.alerts.rules import ALL_STATS
+from src.eval import identity_guard
 
 MIN_POSITIVES = 20
 
@@ -69,6 +72,55 @@ def _fit_predict(xtr, ytr, xva, is_cat) -> np.ndarray:
     return clf.predict_proba(xva)[:, 1]
 
 
+def _prepare(
+    alerts: pl.DataFrame, labels: pl.DataFrame, kyc: pl.DataFrame, cfg: dict, rule_ids: list[str]
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    d = (
+        alerts.filter(pl.col("period").is_in(["TRAIN", "VALIDATION"]))
+        .join(labels.select("alert_id", "is_true_positive"), on="alert_id", how="left")
+        .join(kyc, on="account_key", how="left")
+        .sort("alert_id")
+    )
+    d = _design(d, rule_ids, datetime.fromisoformat(cfg["kyc_as_of"]))
+    return d.filter(pl.col("period") == "TRAIN"), d.filter(pl.col("period") == "VALIDATION")
+
+
+def _feature_sets(cfg: dict, rule_ids: list[str]) -> dict[str, tuple[list[str], list[str]]]:
+    groups = cfg["attribute_groups"]
+    txn_num = [*ALL_STATS, "n_rules_triggered", *[f"fired_{r}" for r in rule_ids]]
+    numeric = set(groups.get("numeric") or [])
+    cat_real = [c for c in groups["real_or_data_derived"] if c not in numeric]
+    syn = groups["synthetic"]
+    cat_syn = [c for c in syn if c not in numeric]
+    num_syn = [c for c in syn if c in numeric]
+    return {
+        "kyc_all": (num_syn, cat_real + cat_syn),
+        "kyc_real": ([], cat_real),
+        "txn": (txn_num, []),
+        "txn_kyc_all": (txn_num + num_syn, cat_real + cat_syn),
+        "txn_kyc_real": (txn_num, cat_real),
+    }
+
+
+def kyc_identity_guard(
+    alerts: pl.DataFrame, labels: pl.DataFrame, kyc: pl.DataFrame, cfg: dict, rule_ids: list[str]
+) -> dict:
+    """Guard verdict for KYC (all attributes) added to the transaction features."""
+    tr, va = _prepare(alerts, labels, kyc, cfg, rule_ids)
+    seen = np.isin(va["account_key"].to_numpy(), tr["account_key"].unique().to_numpy())
+    ytr = tr["is_true_positive"].to_numpy().astype(int)
+    yva = va["is_true_positive"].to_numpy().astype(int)
+    specs = _feature_sets(cfg, rule_ids)
+    preds = {}
+    for name in ("txn", "txn_kyc_all"):
+        xtr, xva, is_cat = _matrix(tr, va, *specs[name])
+        preds[name] = _fit_predict(xtr, ytr, xva, is_cat)
+    res = identity_guard.evaluate(
+        yva, preds["txn"], preds["txn_kyc_all"], seen, cfg["identity_guard"]["thresholds"]
+    )
+    return {"group": "kyc_all", "base": "txn"} | res
+
+
 def leakage_tests(
     alerts: pl.DataFrame,
     labels: pl.DataFrame,
@@ -77,16 +129,7 @@ def leakage_tests(
     rule_ids: list[str],
     unseen_only: bool = False,
 ) -> dict:
-    groups = cfg["attribute_groups"]
-    as_of = datetime.fromisoformat(cfg["kyc_as_of"])
-    d = (
-        alerts.filter(pl.col("period").is_in(["TRAIN", "VALIDATION"]))
-        .join(labels.select("alert_id", "is_true_positive"), on="alert_id", how="left")
-        .join(kyc, on="account_key", how="left")
-        .sort("alert_id")
-    )
-    d = _design(d, rule_ids, as_of)
-    tr, va = d.filter(pl.col("period") == "TRAIN"), d.filter(pl.col("period") == "VALIDATION")
+    tr, va = _prepare(alerts, labels, kyc, cfg, rule_ids)
     if unseen_only:
         va = va.join(tr.select("account_key").unique(), on="account_key", how="anti")
     ytr, yva = (
@@ -103,19 +146,7 @@ def leakage_tests(
         return res | {"status": "insufficient_data"}
     prev = float(yva.mean())
 
-    txn_num = [*ALL_STATS, "n_rules_triggered", *[f"fired_{r}" for r in rule_ids]]
-    numeric = set(groups.get("numeric") or [])
-    cat_real = [c for c in groups["real_or_data_derived"] if c not in numeric]
-    syn = groups["synthetic"]
-    cat_syn = [c for c in syn if c not in numeric]
-    num_syn = [c for c in syn if c in numeric]
-    specs = {
-        "kyc_all": (num_syn, cat_real + cat_syn),
-        "kyc_real": ([], cat_real),
-        "txn": (txn_num, []),
-        "txn_kyc_all": (txn_num + num_syn, cat_real + cat_syn),
-        "txn_kyc_real": (txn_num, cat_real),
-    }
+    specs = _feature_sets(cfg, rule_ids)
     preds = {}
     for name, (num, cat) in specs.items():
         xtr, xva, is_cat = _matrix(tr, va, num, cat)

@@ -169,12 +169,23 @@ A report-only rerun uses VALIDATION accounts with no TRAIN alert.
   1. **The day-level onboarding date acted as an account fingerprint.** Adding it took KYC-only PR-AUC from 1.70× to 2.63×: the model memorised TRAIN laundering accounts that recur in VALIDATION. The same class of problem as D5's ID leakage.
   2. **v1 planting leaked future information.** It planted profiles on accounts because of *later* alerts. Among accounts with no TRAIN alert, an explanation-type sector made a VALIDATION alert 1.9× more likely, and a high declared band 3.5×.
 
+**v2 result and the identity guard (decided by Dani, 2026-09-30).**
+- KYC v2 (label-free) still failed C1 (2.63× prev) and C2 (1.16× prev); C3 and C4 passed.
+- The same test on VALIDATION alerts of accounts **never alerted in TRAIN** gave C1 = 1.01× prev (no signal), and every check passed. So KYC contains no planted clue. What fails is **account recognition**: a stable combination of per-account fields lets a model recognise accounts that recur between TRAIN and VALIDATION.
+- Any stable per-account attribute (real or synthetic) can do this, so it cannot be "fixed" inside KYC without making KYC useless. The ceilings stay as declared, and the failures are recorded in `configs/p2_kyc.yaml → accepted_ceiling_failures` with the exact measured values of the final run. A results test accepts a failed ceiling only if it is recorded there **and** the unseen-accounts rerun passes every check.
+- The real risk is a **model** that looks good by recognising accounts. It is blocked by a binding rule (`identity_guard` in `configs/p2_kyc.yaml`, code in `src/eval/identity_guard.py`):
+  - For P3–P5, every model feature group is measured on VALIDATION separately for accounts **seen** in TRAIN and **unseen** accounts: gain = PR-AUC(base + group) − PR-AUC(base) in each subset, divided by that subset's prevalence. Raw lift is not compared, because seen and unseen accounts are different populations (the transaction-only model has 4.0× lift on all VALIDATION vs 1.43× on unseen).
+  - Verdicts, with thresholds declared before first use: fewer than 20 positives in either subset → `insufficient_data` (not cleared); seen gain < 0.05 × prev → `no_material_gain`; unseen gain < 0.5 × seen gain → `account_recognition` (the group is removed or fixed); otherwise `pass`.
+  - Model results are always reported for regime B (unseen accounts) next to regime A.
+  - The guard is applied here to KYC on top of the transaction features (`build.kyc.identity_guard`). If KYC gets `account_recognition`, P3 may not use KYC fields as model features. Agents may still read KYC as case context: they do not learn across cases.
+
 ## 9. Planted innocent explanations (task 7), v2: from burn-in behaviour, label-free
 
 - For every account active on the burn-in day (2022-09-01), each rule statistic becomes a within-day percentile. The account's **dominant behaviour** is the highest one.
-- Accounts whose dominant percentile is ≥ 0.99 are candidates. Each candidate receives, with probability 0.5, a sector explaining that behaviour, plus a high or very-high declared band. Examples: fan-in → payment processor; many near-10k payments → convenience store; cash → restaurant.
+- Accounts whose dominant percentile is ≥ 0.95 are candidates. Each candidate receives a sector explaining that behaviour (v2.1: every candidate, probability 1.0), plus a high or very-high declared band. Examples: fan-in → payment processor; many near-10k payments → convenience store; cash → restaurant.
 - If the behaviour recurs later, the profile plausibly explains the later alert, **for launderers and legitimate customers alike**. The Defence has something real to argue, and nothing uses a label or a future date.
 - **The v1 firewall exception is removed.**
+- **v2.1 (Dani, 2026-09-30, declared before the rerun).** v2 used the top 1% and probability 0.5. Realised planted rates among pre-TEST alerted accounts were only 7.4% (legitimate) and 3.4% (laundering): too little for the Defence to work with. v2.1 widens candidates to the top 5% and plants every candidate. The new rates are measured, not promised.
 - **Realised rates are measured on pre-TEST alerted accounts** and reported as `build.kyc.planting`:
   - planted rate for real vs false alerted accounts;
   - "explains its own alert" rate.

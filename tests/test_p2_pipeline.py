@@ -306,3 +306,9 @@ def test_kyc_stage_needs_no_test_data(p2_run, tmp_path):
         hashlib.sha256(orig.read_bytes()).hexdigest()
     )
     assert doc["build"]["kyc"]["version"] == 2
+    assert doc["build"]["kyc"]["identity_guard"]["verdict"] in (
+        "pass",
+        "account_recognition",
+        "no_material_gain",
+        "insufficient_data",
+    )

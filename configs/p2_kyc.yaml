@@ -83,8 +83,11 @@ customer_risk_rating:       # points: sector/occupation risk (0/1/2) + country r
 # pre-TEST periods only) are measured and reported, as task 7 requires.
 planting:
   method: burn_in_behaviour
-  candidate_percentile: 0.99      # dominant burn-in behaviour in the top 1% of active accounts
-  planting_prob: 0.5              # half of the candidates receive an explaining profile
+  # v2.1 (approved by Dani 2026-09-30, declared before the rerun). v2 used top 1% and 0.5: realised
+  # explaining-profile rate among pre-TEST alerted accounts was only 7.4% (legitimate) / 3.4%
+  # (laundering), too little material for the Defence agent. Rates are measured again, not promised.
+  candidate_percentile: 0.95      # dominant burn-in behaviour in the top 5% of active accounts
+  planting_prob: 1.0              # every candidate receives an explaining profile
   planted_band_probs: {high: 0.6, very_high: 0.4}
   individual_occupation: business_owner_cash_intensive
   behaviour_stats:                # behaviour -> the rule statistic that measures it (p2_rules.yaml)
@@ -121,6 +124,33 @@ ceilings:
   txn_synthetic_increment_max_multiple_of_prev: 0.25     # C4: PR-AUC(txn+KYC) - PR-AUC(txn+real KYC)
   model: "HistGradientBoostingClassifier(max_iter=200, learning_rate=0.1, max_leaf_nodes=31, early_stopping=False, random_state=0)"
   bootstrap_reps: 200       # paired bootstrap on VALIDATION, reported only (the gate is the point estimate)
+
+# ---- Outcome of C1/C2 and the guard that replaces them downstream (Dani, 2026-09-30) ------------
+# KYC v2 run (2026-09-30): C1 = 2.63x prev and C2 = 1.16x prev FAILED; C3 and C4 passed.
+# The same test on VALIDATION accounts never alerted in TRAIN gave C1 = 1.01x (no signal) and all
+# checks passing. Meaning: KYC carries no planted clue; the failure is ACCOUNT RECOGNITION (stable
+# per-account field combinations identify accounts that recur between TRAIN and VALIDATION).
+# Ceilings are unchanged and the failure stays recorded (accepted_ceiling_failures, final values
+# filled in from the final run). The real risk is in models, so it is blocked there:
+identity_guard:
+  rule: >-
+    Binding for P3-P5: every model feature group is evaluated on VALIDATION separately for accounts
+    seen in TRAIN and accounts not seen in TRAIN (src/eval/identity_guard.py). A feature group whose
+    incremental PR-AUC appears only on seen accounts is account recognition and is removed or
+    fixed. Model results are always reported for regime B (unseen accounts) next to regime A.
+    Agents are unaffected: they do not learn across cases.
+  # Verdict thresholds (declared 2026-09-30, BEFORE the guard is applied to anything). Gains are
+  # AP(base + group) - AP(base), each divided by its own subset's prevalence. P3 may tighten these,
+  # never loosen them without Dani's decision.
+  thresholds:
+    min_positives: 20                  # per subset (seen / unseen); fewer -> group not cleared
+    materiality_gain_over_prev: 0.05   # below this on seen accounts the group adds nothing
+    min_unseen_to_seen_ratio: 0.5      # unseen gain must be at least half the seen gain
+  # Applied here to KYC as a feature group on top of the transaction features (same design as C3).
+  # If KYC gets 'account_recognition', P3 must not use KYC fields as model features (agents may
+  # still read KYC as case context).
+  required_unseen_check_pass: true   # the P2 KYC test on unseen accounts must pass (all checks)
+accepted_ceiling_failures: []        # filled from the final `run_p2 kyc` numbers, then frozen
 
 attribute_groups:                # categorical unless listed under numeric
   real_or_data_derived: [entity_type, bank_country, country_risk, expected_activity_band]
