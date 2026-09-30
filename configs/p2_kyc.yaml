@@ -7,7 +7,7 @@ kyc_as_of: "2022-09-02T00:00:00+00:00"   # profiles are what the bank knew befor
 # ---------------------------------------------------------------- base attributes (no labels)
 # REAL: entity_type (accounts file), bank_location / bank_country (parsed from bank name).
 # DATA-DERIVED: expected_activity_band from BURN-IN day activity (2022-09-01 < every as_of).
-# SYNTHETIC: sector_or_occupation, onboarding_date, country_risk tiers, customer_risk_rating.
+# SYNTHETIC: sector_or_occupation, onboarding_year, country_risk tiers, customer_risk_rating.
 
 activity_band:
   bands: [low, medium, high, very_high]
@@ -19,6 +19,8 @@ activity_band:
 onboarding:
   start: "2005-01-01"
   end: "2022-08-31"         # uniform over days; before the data span
+  stored_as: year           # KYC v2: a day-level date acted as an account fingerprint (it let a
+                            # model memorise TRAIN laundering accounts); only the year is stored
 
 sectors:                    # business entity types; weight, risk tier
   professional_services: {w: 14, risk: low}
@@ -69,16 +71,33 @@ customer_risk_rating:       # points: sector/occupation risk (0/1/2) + country r
   cuts: {medium_at: 2, high_at: 3}      # <2 low, 2 medium, >=3 high
 
 # ---------------------------------------------------------------- task 7: planted explanations
-# The ONLY step that reads labels (scripts/p2/plant.py, declared firewall exception).
-# Label-BALANCED: the same fraction of legitimate and laundering alerted accounts receive a
-# profile that plausibly explains the behaviour that triggered their FIRST alert. The profile
-# therefore creates doubt for the Defence to argue without telling anyone which side is right.
+# KYC v2 (approved by Dani 2026-09-30). v1 planted profiles on alerted accounts using their labels
+# (label-balanced 30%/30%). The TRAIN/VALIDATION diagnostic (docs/p2/p2_kyc_diagnostics.json) showed
+# that v1 leaked FUTURE information: among accounts with no TRAIN alert, an explanation-type sector
+# made a VALIDATION alert 1.9x more likely (planting used later alerts). v2 is LABEL-FREE and uses
+# only the burn-in day (2022-09-01, before every window): an account whose burn-in behaviour is
+# extreme for some rule statistic may receive a profile that explains that behaviour. If the
+# behaviour recurs later, the profile explains the later alert, for launderers and legitimate
+# customers alike. No firewall exception is needed any more.
+# Parameters declared BEFORE measuring v2. Realised rates among alerted accounts (real vs false,
+# pre-TEST periods only) are measured and reported, as task 7 requires.
 planting:
-  rate_legitimate_alerted: 0.30
-  rate_laundering_alerted: 0.30
+  method: burn_in_behaviour
+  candidate_percentile: 0.99      # dominant burn-in behaviour in the top 1% of active accounts
+  planting_prob: 0.5              # half of the candidates receive an explaining profile
   planted_band_probs: {high: 0.6, very_high: 0.4}
   individual_occupation: business_owner_cash_intensive
-  archetypes:               # rule that fired -> sectors whose normal business looks like it
+  behaviour_stats:                # behaviour -> the rule statistic that measures it (p2_rules.yaml)
+    R01_LARGE_SINGLE_TXN: max_txn_usd
+    R02_PEER_VOLUME_OUTLIER: volume_usd
+    R03_STRUCTURING: n_near_threshold
+    R04_FAN_IN: n_distinct_senders
+    R05_FAN_OUT: n_distinct_receivers
+    R06_RAPID_IN_OUT: pass_through_usd
+    R07_HIGH_RISK_CHANNEL: high_risk_channel_usd
+    R08_CROSS_CURRENCY_CHURN: n_cross_currency
+    R09_ROUND_AMOUNTS: n_round_amounts
+  archetypes:               # behaviour -> sectors whose normal business looks like it
     R01_LARGE_SINGLE_TXN: [real_estate_agency, wholesale_trade, precious_metals_dealer]
     R02_PEER_VOLUME_OUTLIER: [wholesale_trade, payment_processor, logistics]
     R03_STRUCTURING: [convenience_store, restaurant]
@@ -92,8 +111,8 @@ planting:
 # ---------------------------------------------------------------- task 6: leakage ceilings
 # Declared BEFORE measurement. Alert level: fit on TRAIN alerts, evaluate on VALIDATION alerts,
 # target = is_true_positive, PR-AUC = average precision, prev = VALIDATION alert prevalence.
-# Reasoning: synthetic attributes are generated without labels and planting is label-balanced,
-# so their expected lift is 1.0. The REAL attributes measured in P1 (entity type) have lift
+# Reasoning: synthetic attributes are generated without labels (v2: also planting), so their
+# expected lift is 1.0. (Ceilings unchanged by KYC v2.) The REAL attributes measured in P1 (entity type) have lift
 # 0.6-1.5. A KYC-only model above 2x the base rate would mean a clue, not context.
 ceilings:
   kyc_only_pr_auc_max_multiple_of_prev: 2.0              # C1: all KYC attributes
@@ -103,9 +122,10 @@ ceilings:
   model: "HistGradientBoostingClassifier(max_iter=200, learning_rate=0.1, max_leaf_nodes=31, early_stopping=False, random_state=0)"
   bootstrap_reps: 200       # paired bootstrap on VALIDATION, reported only (the gate is the point estimate)
 
-attribute_groups:
+attribute_groups:                # categorical unless listed under numeric
   real_or_data_derived: [entity_type, bank_country, country_risk, expected_activity_band]
-  synthetic: [sector_or_occupation, onboarding_age_days, customer_risk_rating]
+  synthetic: [sector_or_occupation, onboarding_year, customer_risk_rating]
+  numeric: [onboarding_year]
 
 # Bank-name formats, as printed by scripts/p2/discover_banks.py on HI-Medium (2026-09-30):
 #   '<X> Bank #<n>' (1,312,489 accounts): X is one of the 32 countries below, or 'Crytpo'

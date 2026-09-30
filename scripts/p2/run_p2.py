@@ -1,10 +1,12 @@
 """Phase 2 driver: boundaries -> stats -> calibration (TRAIN) -> alerts -> labels -> feasibility
--> AGENT-DEV/TEST split -> KYC (+ planting) -> leakage tests -> dispositions -> results JSON.
+-> AGENT-DEV/TEST split -> KYC v2 (+ planting) -> leakage tests -> dispositions -> results JSON.
 
 Usage (repo root, on the machine that holds data/interim from P1):
-    uv run python -m scripts.p2.run_p2 calibrate     # stats, FX, thresholds on TRAIN
-    uv run python -m scripts.p2.run_p2 build         # the rest (needs the thresholds file)
-    uv run python -m scripts.p2.run_p2 all --verify  # regenerate everything elsewhere: identical
+    uv run python -m scripts.p2.run_p2 calibrate     # stats, FX, thresholds on TRAIN (no TEST)
+    uv run python -m scripts.p2.run_p2 kyc           # KYC v2 + leakage tests only (no TEST)
+    uv run python -m scripts.p2.run_p2 build         # everything; READS TEST (counts, split)
+    uv run python -m scripts.p2.run_p2 all --verify  # regenerate everything elsewhere (READS TEST)
+Rule (Dani, 2026-09-30): ask before running any stage that reads TEST.
 
 Order is enforced: `build` refuses to run without configs/p2_rule_thresholds.yaml and records its
 sha256 BEFORE any TEST-period count is computed (the holdout's single permitted exposure).
@@ -31,7 +33,6 @@ import yaml
 from scripts.p2 import calibrate as cal
 from scripts.p2 import dispositions as disp
 from scripts.p2 import kyc_leakage
-from scripts.p2 import plant as planting
 from src.alerts import build, rules
 from src.data import fx as fxmod
 from src.data import kyc as kycmod
@@ -113,6 +114,12 @@ def _step(msg: str) -> None:
 # ---------------------------------------------------------------- stage: stats
 
 
+def burn_in_stats(trans_usd: pl.LazyFrame, split: Split, rcfg: dict) -> pl.DataFrame:
+    """Every rule statistic for the burn-in day (2022-09-01): label-free, before every window."""
+    bi = rules.day_stats(trans_usd, split.burn_in[0], split, rcfg)
+    return bi.select("account_key", *rules.ALL_STATS)
+
+
 def stage_stats(
     variant: str,
     interim: Path,
@@ -160,9 +167,8 @@ def stage_stats(
     write_parquet(attrs, P.keys)
     peer = attrs.select("account_key", pl.col("entity_type").alias("peer_group"))
 
-    _step("burn-in activity (for KYC expected activity)")
-    bi = rules.day_stats(tu, split.burn_in[0], split, rcfg)
-    write_parquet(bi.select("account_key", "volume_usd", "n_txn"), P.burn_in)
+    _step("burn-in statistics (KYC activity band and v2 planting)")
+    write_parquet(burn_in_stats(tu, split, rcfg), P.burn_in)
 
     P.stats_dir.mkdir(parents=True, exist_ok=True)
     n_active = {}
@@ -426,17 +432,89 @@ def stage_build(
         "all_pass_with_accepted_deviations": all(g in accepted for g in failing),
     }
 
-    # ---- KYC (runtime store) + planting (eval record)
-    _step("synthetic KYC")
+    # ---- KYC v2 (runtime store) + planting record (eval store); pre-TEST alerts only
+    pre = alerts.filter(pl.col("period").is_in(PRE_TEST_PERIODS))
+    out["kyc"] = kyc_block(
+        P, split, rcfg, kcfg, pre, labels.join(pre.select("alert_id"), on="alert_id", how="semi")
+    )
+
+    # ---- dispositions (runtime store)
+    _step("simulated dispositions (TRAIN, VALIDATION, CALIBRATION)")
+    d, audit = disp.simulate(alerts, labels, dcfg)
+    disp.validate(d)
+    write_parquet(d, P.disp)
+    out["dispositions"] = audit | {"n": d.height}
+    return out
+
+
+def kyc_block(
+    P: Paths,
+    split: Split,
+    rcfg: dict,
+    kcfg: dict,
+    pre_alerts: pl.DataFrame,
+    pre_labels: pl.DataFrame,
+) -> dict:
+    """KYC v2 generation (label-free) + measurement on pre-TEST alerts only.
+
+    pre_alerts / pre_labels must contain TRAIN, VALIDATION, CALIBRATION rows only: nothing in this
+    block reads TEST (Dani's rule, 2026-09-30)."""
+    if set(pre_alerts["period"].unique()) - set(PRE_TEST_PERIODS):
+        raise RuntimeError("kyc_block received non pre-TEST alerts")
+    _step("synthetic KYC v2 (label-free)")
     attrs = pl.read_parquet(P.keys)
-    base = kycmod.base_kyc(attrs, pl.read_parquet(P.burn_in), kcfg)
-    planted, record, rates = planting.plant(base, alerts, labels, kcfg)
+    bi = pl.read_parquet(P.burn_in)
+    base = kycmod.base_kyc(attrs, bi, kcfg)
+    planted, record = kycmod.plant_from_behaviour(base, bi, kcfg)
     kyc = kycmod.derive_risk(planted, kcfg)
     write_parquet(kyc, P.kyc)
     write_parquet(record, P.planting)
-    out["kyc"] = {
+
+    # realised planting rates among pre-TEST alerted accounts, real vs false (task 7)
+    acc = (
+        pre_alerts.select("alert_id", "account_key", "triggered_rules")
+        .join(pre_labels.select("alert_id", "is_true_positive"), on="alert_id")
+        .group_by("account_key")
+        .agg(
+            pl.col("is_true_positive").any().alias("laundering_account"),
+            pl.col("triggered_rules")
+            .list.explode(keep_nulls=False, empty_as_null=False)
+            .unique()
+            .alias("rules"),
+        )
+        .join(record, on="account_key", how="left")
+        .with_columns(
+            pl.col("planted").fill_null(False),
+            pl.col("candidate").fill_null(False),
+            pl.col("rules")
+            .list.contains(pl.col("dominant_behaviour"))
+            .fill_null(False)
+            .alias("same"),
+        )
+        .with_columns((pl.col("planted") & pl.col("same")).alias("explains_own_alert"))
+    )
+
+    def rate(df: pl.DataFrame, c: str) -> float | None:
+        return _sig(df[c].mean()) if df.height else None
+
+    lau, leg = acc.filter(pl.col("laundering_account")), acc.filter(~pl.col("laundering_account"))
+    planting = {
+        "method": kcfg["planting"]["method"],
+        "scope": "accounts with >= 1 TRAIN/VALIDATION/CALIBRATION alert",
+        "n_planted_all_accounts": int(record["planted"].sum()),
+        "n_candidates_all_accounts": int(record["candidate"].sum()),
+        "n_alerted_accounts": acc.height,
+        "n_laundering_alerted_accounts": lau.height,
+        "n_legitimate_alerted_accounts": leg.height,
+        "realised_rate_laundering": rate(lau, "planted"),
+        "realised_rate_legitimate": rate(leg, "planted"),
+        "explains_own_alert_rate_laundering": rate(lau, "explains_own_alert"),
+        "explains_own_alert_rate_legitimate": rate(leg, "explains_own_alert"),
+    }
+    block = {
+        "version": 2,
         "n_accounts": kyc.height,
-        "planting": rates,
+        "planting": planting,
         "distributions": {
             c: dict(sorted(Counter(kyc[c].to_list()).items()))
             for c in (
@@ -449,17 +527,37 @@ def stage_build(
         "n_sectors": kyc["sector_or_occupation"].n_unique(),
     }
     _step("KYC leakage tests (TRAIN -> VALIDATION)")
-    out["kyc"]["leakage"] = kyc_leakage.leakage_tests(
-        alerts, labels, kyc, kcfg, rules.rule_ids(rcfg)
+    ids = rules.rule_ids(rcfg)
+    block["leakage"] = kyc_leakage.leakage_tests(pre_alerts, pre_labels, kyc, kcfg, ids)
+    block["leakage_unseen_accounts_report_only"] = kyc_leakage.leakage_tests(
+        pre_alerts, pre_labels, kyc, kcfg, ids, unseen_only=True
     )
+    return block
 
-    # ---- dispositions (runtime store)
-    _step("simulated dispositions (TRAIN, VALIDATION, CALIBRATION)")
-    d, audit = disp.simulate(alerts, labels, dcfg)
-    disp.validate(d)
-    write_parquet(d, P.disp)
-    out["dispositions"] = audit | {"n": d.height}
-    return out
+
+def stage_kyc(
+    variant: str, interim: Path, P: Paths, split: Split, rcfg: dict, kcfg: dict, cp
+) -> dict:
+    """Regenerate KYC v2 and its leakage tests WITHOUT reading TEST (alerts filtered on read,
+    labels semi-joined on read)."""
+    need = {"account_key", *rules.ALL_STATS}
+    if not P.burn_in.is_file() or not need <= set(pl.read_parquet_schema(P.burn_in).names()):
+        verify_interim(interim, variant, cp.sources)
+        tu = fxmod.with_usd(
+            scan_transactions(interim_path(interim, variant, "trans")), fxmod.load(P.fx)
+        )
+        _step("burn-in statistics (KYC activity band and v2 planting)")
+        write_parquet(burn_in_stats(tu, split, rcfg), P.burn_in)
+    pre = pl.scan_parquet(P.alerts).filter(pl.col("period").is_in(PRE_TEST_PERIODS)).collect()
+    labels = (
+        pl.scan_parquet(P.labels)
+        .join(pre.select("alert_id").lazy(), on="alert_id", how="semi")
+        .select("alert_id", "is_true_positive")
+        .collect()
+    )
+    if labels.height != pre.height:
+        raise RuntimeError("pre-TEST labels do not match pre-TEST alerts")
+    return kyc_block(P, split, rcfg, kcfg, pre, labels)
 
 
 def store_fingerprints(P: Paths) -> dict:
@@ -524,6 +622,12 @@ def run(
             p: _n_pos(pos, split, p) for p in PRE_TEST_PERIODS
         }
         doc["calibration"] = stage_calibrate(P, split, rcfg, pos, cp)
+    if stage == "kyc":
+        doc.setdefault("build", {})["kyc"] = stage_kyc(variant, interim, P, split, rcfg, kcfg, cp)
+        fps = store_fingerprints(P)
+        doc.setdefault("stores", {})
+        for k in ("runtime/kyc.parquet", "eval/planting.parquet"):
+            doc["stores"][k] = fps[k]
     if stage in ("build", "all"):
         if not P.stats_dir.is_dir():
             doc["stats"] = stage_stats(variant, interim, P, split, rcfg, kcfg, False, cp.sources)
@@ -579,7 +683,7 @@ def compare_runs(a: Path, b: Path) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Dossier P2: alerts, labels, KYC, dispositions")
-    ap.add_argument("stage", choices=["calibrate", "build", "all"])
+    ap.add_argument("stage", choices=["calibrate", "kyc", "build", "all"])
     ap.add_argument("--variant", default=PRIMARY)
     ap.add_argument("--interim-dir", type=Path, default=ROOT / "data" / "interim")
     ap.add_argument("--out-root", type=Path, default=ROOT / "data" / "p2")

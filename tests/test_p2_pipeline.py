@@ -269,3 +269,40 @@ def test_regeneration_is_byte_identical(p2_run, p2_run_again):
     d1 = {k: v for k, v in p2_run["doc"].items() if k != "run_info"}
     d2 = {k: v for k, v in p2_run_again["doc"].items() if k != "run_info"}
     assert json.dumps(d1, sort_keys=True) == json.dumps(d2, sort_keys=True)
+
+
+def test_kyc_stage_needs_no_test_data(p2_run, tmp_path):
+    """`run_p2 kyc` must give the same KYC with every TEST label and TEST alert removed."""
+    import shutil
+
+    from scripts.p2 import run_p2
+
+    src = p2_run["root"]
+    dst = tmp_path / "copy"
+    shutil.copytree(src / "out", dst / "out")
+    shutil.copytree(src / "configs", dst / "configs")
+    base = dst / "out" / "FIX"
+    a = pl.read_parquet(base / "runtime" / "alerts.parquet")
+    keep = a.filter(pl.col("period") != "TEST")
+    keep.write_parquet(base / "runtime" / "alerts.parquet")
+    lab = pl.read_parquet(base / "eval" / "alert_labels.parquet")
+    lab.join(keep.select("alert_id"), on="alert_id", how="semi").write_parquet(
+        base / "eval" / "alert_labels.parquet"
+    )
+    (base / "runtime" / "kyc.parquet").unlink()
+    doc = run_p2.run(
+        "kyc",
+        "FIX",
+        p2_run["info"]["interim"],
+        dst / "out",
+        dst / "configs",
+        dst / "results.json",
+        20260930,
+        cp=p2_run["cp"],
+        primary="FIX",
+    )
+    orig = p2_run["base"] / "runtime" / "kyc.parquet"
+    assert hashlib.sha256((base / "runtime" / "kyc.parquet").read_bytes()).hexdigest() == (
+        hashlib.sha256(orig.read_bytes()).hexdigest()
+    )
+    assert doc["build"]["kyc"]["version"] == 2

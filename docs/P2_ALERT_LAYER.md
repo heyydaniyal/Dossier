@@ -137,39 +137,49 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 - Each component goes wholly to one group, decided by the keyed hash of the component. The target is 50/50.
 - This is executed in `src/eval`. The agent side receives only `agent_dev_alert_ids.parquet`.
 
-## 8. Synthetic KYC (task 6)
+## 8. Synthetic KYC (task 6), KYC v2
 
 | Attribute | Source | Label access |
 |---|---|---|
 | entity_type | REAL (accounts file) | none |
 | bank_location, bank_country | REAL, from the bank name. Formats printed by `discover_banks` (2026-09-30): '<Country> Bank #n' (32 countries), 'Crytpo Bank #n' (crypto platforms, country 'Crypto'), or a named US bank (468 names, e.g. 'Savings Bank of Seattle'; United States). An unknown '#n' prefix stops the run | none |
 | country_risk | synthetic tier per country, seeded; US = low; Crypto = high (decided 2026-09-30) | none |
-| sector_or_occupation | seeded draw by entity type | none (except planting, §9) |
-| expected_activity_band | rank of **burn-in day** volume within entity type, 25% ± 1-band noise; inactive accounts use a prior | none |
-| onboarding_date | uniform 2005-01-01 … 2022-08-31 | none |
+| sector_or_occupation | seeded draw by entity type, then v2 planting (§9) | none |
+| expected_activity_band | rank of **burn-in day** volume within entity type, 25% ± 1-band noise; inactive accounts use a prior; v2 planting may raise it | none |
+| onboarding_year | a uniform day in 2005-01-01 … 2022-08-31 is drawn; **only its year is stored** (v2) | none |
 | customer_risk_rating | f(sector risk, country risk, very-high activity) ± noise, computed after planting | none |
 
 - `kyc_as_of` = 2022-09-02 00:00, which is before every alert.
-- Every draw is a keyed hash of (seed, stream, account_key), so it does not depend on row order or ID order.
-- `tests/test_p2_generators.py` audits `src/data/kyc.py`: no label, pattern, alert or eval access.
+- Every draw is a keyed hash of (seed, stream, account_key). The whole generator, including planting, lives in `src/data/kyc.py` and is audited for ground-truth access.
 
-**Leakage ceilings (declared in advance).** Fit on TRAIN alerts, evaluate on VALIDATION alerts; `prev` = VALIDATION prevalence.
+**Leakage ceilings (declared in advance, unchanged by v2).** Fit on TRAIN alerts, evaluate on VALIDATION alerts; `prev` = VALIDATION prevalence.
 
 | Check | Ceiling |
 |---|---|
 | C1 KYC-only PR-AUC | ≤ 2.0 × prev |
-| C2 synthetic increment (all KYC − real KYC) | ≤ 0.25 × prev |
+| C2 synthetic increment | ≤ 0.25 × prev |
 | C3 PR-AUC(txn + KYC) − PR-AUC(txn) | ≤ 0.5 × prev |
-| C4 synthetic interaction increment (txn + KYC − txn + real KYC) | ≤ 0.25 × prev |
+| C4 synthetic interaction increment | ≤ 0.25 × prev |
 
-Paired-bootstrap 95% intervals are reported. The ceiling tests are themselves tested: a planted clue must fail C1, C2 and C4.
+A report-only rerun uses VALIDATION accounts with no TRAIN alert.
 
-## 9. Planted innocent explanations (task 7): declared firewall exception
+**Why v2** (KYC v1 measured by the 2026-09-30 build):
+- C1 = 2.6× and C2 = 1.27× failed; C3 and C4 passed.
+- The TRAIN/VALIDATION diagnostic (`docs/p2/p2_kyc_diagnostics.json`) found two causes:
+  1. **The day-level onboarding date acted as an account fingerprint.** Adding it took KYC-only PR-AUC from 1.70× to 2.63×: the model memorised TRAIN laundering accounts that recur in VALIDATION. The same class of problem as D5's ID leakage.
+  2. **v1 planting leaked future information.** It planted profiles on accounts because of *later* alerts. Among accounts with no TRAIN alert, an explanation-type sector made a VALIDATION alert 1.9× more likely, and a high declared band 3.5×.
 
-- `scripts/p2/plant.py` is the only KYC step that reads labels, including TEST alert labels.
-- It is **label-balanced**: 30% of legitimate alerted accounts **and** 30% of laundering alerted accounts receive a profile that explains the rule behind their first alert. Examples: fan-in → payment processor; structuring → convenience store; cash → restaurant. The declared activity band is set to high or very high.
-- Because the rate is equal for both classes, the profile gives the Defence something real to argue and the Prosecution something to check, without telling either which side is right. C2 and C4 measure whether this holds.
-- The planting record (who was planted, and whether they launder) lives only in the evaluation store.
+## 9. Planted innocent explanations (task 7), v2: from burn-in behaviour, label-free
+
+- For every account active on the burn-in day (2022-09-01), each rule statistic becomes a within-day percentile. The account's **dominant behaviour** is the highest one.
+- Accounts whose dominant percentile is ≥ 0.99 are candidates. Each candidate receives, with probability 0.5, a sector explaining that behaviour, plus a high or very-high declared band. Examples: fan-in → payment processor; many near-10k payments → convenience store; cash → restaurant.
+- If the behaviour recurs later, the profile plausibly explains the later alert, **for launderers and legitimate customers alike**. The Defence has something real to argue, and nothing uses a label or a future date.
+- **The v1 firewall exception is removed.**
+- **Realised rates are measured on pre-TEST alerted accounts** and reported as `build.kyc.planting`:
+  - planted rate for real vs false alerted accounts;
+  - "explains its own alert" rate.
+- The planting record lives only in the evaluation store.
+- `run_p2 kyc` regenerates KYC and its tests **without reading TEST**; a test proves it gives identical output with all TEST rows deleted.
 
 ## 10. Simulated dispositions (task 9)
 

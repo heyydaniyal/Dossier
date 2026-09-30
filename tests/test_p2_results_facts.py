@@ -88,10 +88,14 @@ def test_kyc_leakage_within_pre_declared_ceilings():
         assert v["pass"], (k, v)
 
 
-def test_planting_rates_recorded_and_balanced():
-    p = RES["build"]["kyc"]["planting"]
-    assert p["realised_rate_laundering"] == pytest.approx(p["declared_rate_laundering"], abs=0.02)
-    assert p["realised_rate_legitimate"] == pytest.approx(p["declared_rate_legitimate"], abs=0.01)
+def test_kyc_v2_planting_rates_recorded():
+    k = RES["build"]["kyc"]
+    assert k["version"] == 2
+    p = k["planting"]
+    assert p["method"] == KYC["planting"]["method"] == "burn_in_behaviour"
+    for c in ("realised_rate_laundering", "realised_rate_legitimate"):
+        assert p[c] is not None and 0 < p[c] < 1, c
+    assert "TEST" not in p["scope"]
 
 
 def test_dispositions_pre_test_only_with_errors():

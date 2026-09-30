@@ -100,8 +100,8 @@ def main(argv: list[str] | None = None) -> int:
             [*real, "expected_activity_band", "sector_or_occupation", "customer_risk_rating"],
         ),
         (
-            "+ onboarding_age_days (= all KYC)",
-            ["onboarding_age_days"],
+            "+ onboarding_year (= all KYC)",
+            ["onboarding_year"],
             [*real, "expected_activity_band", "sector_or_occupation", "customer_risk_rating"],
         ),
         ("sector_or_occupation alone", [], ["sector_or_occupation"]),
@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     all_cat = [*real, "expected_activity_band", "sector_or_occupation", "customer_risk_rating"]
     b = {
         "fired rules only": _ap(tr, va, fired, []),
-        "fired rules + all KYC": _ap(tr, va, [*fired, "onboarding_age_days"], all_cat),
+        "fired rules + all KYC": _ap(tr, va, [*fired, "onboarding_year"], all_cat),
         "fired rules + sector_matches_rule": _ap(tr, va, [*fired, "sector_matches_rule"], []),
     }
     out["B_rules_vs_rules_plus_kyc"] = {

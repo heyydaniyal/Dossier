@@ -9,7 +9,7 @@ is asserted in tests/test_p2_results_facts.py once docs/p2/p2_results.json exist
 from __future__ import annotations
 
 import ast
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +19,6 @@ import pytest
 from scripts.p2 import calibrate as cal
 from scripts.p2 import dispositions as disp
 from scripts.p2 import kyc_leakage
-from scripts.p2 import plant as planting
 from src.alerts import rules
 from src.data import fx
 from src.data import kyc as kycmod
@@ -50,11 +49,16 @@ def _attrs(n: int, seed: int = 0) -> pl.DataFrame:
 
 
 def _burn(attrs: pl.DataFrame, seed: int = 1) -> pl.DataFrame:
+    """Burn-in statistics for 60% of accounts (all rule statistics, random)."""
     rng = np.random.default_rng(seed)
     k = attrs.sample(fraction=0.6, seed=seed)
-    return k.select("account_key").with_columns(
-        pl.Series("volume_usd", rng.lognormal(8, 2, k.height))
-    )
+    cols = {}
+    for c in rules.ALL_STATS:
+        if c.startswith("n_"):
+            cols[c] = rng.poisson(1.0, k.height).astype(np.int64)
+        else:
+            cols[c] = rng.lognormal(8, 2, k.height)
+    return k.select("account_key").with_columns(*[pl.Series(c, v) for c, v in cols.items()])
 
 
 # ---------------------------------------------------------------- KYC generator audit (task 6)
@@ -75,10 +79,13 @@ def test_kyc_generator_source_never_touches_ground_truth():
         assert tok not in body.lower(), tok
 
 
-def test_planting_is_the_only_label_reader_and_is_declared():
-    src = (ROOT / "scripts" / "p2" / "plant.py").read_text(encoding="utf-8")
-    assert "DECLARED FIREWALL EXCEPTION" in src
-    assert "is_true_positive" in src
+def test_kyc_v2_has_no_label_reader_at_all():
+    """KYC v2: planting moved into src/data/kyc.py (audited above); the v1 label reader is gone."""
+    assert not (ROOT / "scripts" / "p2" / "plant.py").exists()
+    import inspect
+
+    params = inspect.signature(kycmod.plant_from_behaviour).parameters
+    assert list(params) == ["kyc", "burn_in_stats", "cfg"]  # no alerts, no labels
 
 
 def test_kyc_is_deterministic_and_order_free():
@@ -91,7 +98,9 @@ def test_kyc_is_deterministic_and_order_free():
     assert k1.equals(k2)
     assert k1.columns == kycmod.KYC_COLUMNS
     assert k1.null_count().sum_horizontal().item() == 0
-    assert (k1["onboarding_date"] <= date(2022, 8, 31)).all()
+    assert k1["onboarding_year"].min() >= 2005 and k1["onboarding_year"].max() <= 2022
+    # a year cannot fingerprint an account (a day-level date could: KYC v2 finding)
+    assert k1["onboarding_year"].n_unique() <= 18
     other = dict(KCFG, seed=KCFG["seed"] + 1)
     k3 = kycmod.derive_risk(kycmod.base_kyc(a, b, other), other)
     assert not k1.equals(k3)  # the seed matters
@@ -132,26 +141,35 @@ def _alerted_population(n: int = 20000, prev: float = 0.05, seed: int = 5):
     return a, alerts, labels
 
 
-def test_planting_is_label_balanced_and_leaves_no_trace():
-    a, alerts, labels = _alerted_population()
-    base = kycmod.base_kyc(a, _burn(a), KCFG)
-    planted, record, rates = planting.plant(base, alerts, labels, KCFG)
-    assert rates["realised_rate_laundering"] == pytest.approx(0.30, abs=0.03)
-    assert rates["realised_rate_legitimate"] == pytest.approx(0.30, abs=0.01)
+def test_planting_v2_follows_burn_in_behaviour_only():
+    a = _attrs(40000)
+    b = _burn(a)
+    base = kycmod.base_kyc(a, b, KCFG)
+    planted, record = kycmod.plant_from_behaviour(base, b, KCFG)
+    pc = KCFG["planting"]
+    # only accounts active on the burn-in day can be candidates
+    assert set(record["account_key"]) == set(b["account_key"])
+    cand = record.filter(pl.col("candidate"))
+    assert (cand["dominant_percentile"] >= pc["candidate_percentile"]).all()
+    assert (
+        record.filter(~pl.col("candidate"))["dominant_percentile"] < pc["candidate_percentile"]
+    ).all()
+    assert not record.filter(~pl.col("candidate"))["planted"].any()
+    assert cand["planted"].mean() == pytest.approx(pc["planting_prob"], abs=0.05)
+    # a planted profile explains the account's dominant burn-in behaviour
     kyc = kycmod.derive_risk(planted, KCFG)
-    assert kyc.columns == kycmod.KYC_COLUMNS  # no planted flag, no label
-    changed = kyc.join(kycmod.derive_risk(base, KCFG), on="account_key", suffix="_b").filter(
-        pl.col("sector_or_occupation") != pl.col("sector_or_occupation_b")
-    )
-    assert changed.height > 0
-    # planted sectors match the rule archetype
     r = record.filter(pl.col("planted")).join(kyc, on="account_key")
     ok = [
-        s in KCFG["planting"]["archetypes"][p]
-        or s in (KCFG["planting"]["individual_occupation"], kycmod.GOVERNMENT)
-        for s, p in zip(r["sector_or_occupation"], r["primary_rule"], strict=True)
+        s in pc["archetypes"][d] or s in (pc["individual_occupation"], kycmod.GOVERNMENT)
+        for s, d in zip(r["sector_or_occupation"], r["dominant_behaviour"], strict=True)
     ]
-    assert all(ok)
+    assert all(ok) and r.height > 0
+    assert kyc.columns == kycmod.KYC_COLUMNS  # no planted flag in the runtime store
+    # deterministic and independent of row order
+    p2, rec2 = kycmod.plant_from_behaviour(
+        base.reverse(), b.sample(fraction=1.0, shuffle=True, seed=9), KCFG
+    )
+    assert kycmod.derive_risk(p2, KCFG).equals(kyc) and rec2.equals(record)
 
 
 # ---------------------------------------------------------------- leakage ceilings (task 6)

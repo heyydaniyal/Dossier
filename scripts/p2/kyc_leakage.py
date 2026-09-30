@@ -6,6 +6,8 @@ Alert level. Fit on TRAIN alerts, evaluate on VALIDATION alerts. PR-AUC = averag
   C3  PR-AUC(txn + all KYC) - PR-AUC(txn only)        <= c3 * prev   (task 6 incremental value)
   C4  PR-AUC(txn + all KYC) - PR-AUC(txn + real KYC)  <= c4 * prev   (synthetic interaction leakage)
 The gate is the point estimate; paired bootstrap 95% intervals are reported alongside.
+unseen_only=True repeats the test on VALIDATION alerts of accounts with no TRAIN alert (report
+only, not a gate): it separates account memorisation from a planted clue.
 """
 
 from __future__ import annotations
@@ -26,15 +28,14 @@ def _sig(x: float) -> float:
     return float(f"{float(x):.10g}")
 
 
-def _design(df: pl.DataFrame, rule_ids: list[str], kyc_as_of: datetime) -> pl.DataFrame:
+def _design(
+    df: pl.DataFrame, rule_ids: list[str], kyc_as_of: datetime | None = None
+) -> pl.DataFrame:
     return df.with_columns(
         *[
             pl.col("triggered_rules").list.contains(r).cast(pl.Int8).alias(f"fired_{r}")
             for r in rule_ids
         ],
-        (pl.lit(kyc_as_of.date()) - pl.col("onboarding_date"))
-        .dt.total_days()
-        .alias("onboarding_age_days"),
     )
 
 
@@ -69,7 +70,12 @@ def _fit_predict(xtr, ytr, xva, is_cat) -> np.ndarray:
 
 
 def leakage_tests(
-    alerts: pl.DataFrame, labels: pl.DataFrame, kyc: pl.DataFrame, cfg: dict, rule_ids: list[str]
+    alerts: pl.DataFrame,
+    labels: pl.DataFrame,
+    kyc: pl.DataFrame,
+    cfg: dict,
+    rule_ids: list[str],
+    unseen_only: bool = False,
 ) -> dict:
     groups = cfg["attribute_groups"]
     as_of = datetime.fromisoformat(cfg["kyc_as_of"])
@@ -81,6 +87,8 @@ def leakage_tests(
     )
     d = _design(d, rule_ids, as_of)
     tr, va = d.filter(pl.col("period") == "TRAIN"), d.filter(pl.col("period") == "VALIDATION")
+    if unseen_only:
+        va = va.join(tr.select("account_key").unique(), on="account_key", how="anti")
     ytr, yva = (
         tr["is_true_positive"].to_numpy().astype(int),
         va["is_true_positive"].to_numpy().astype(int),
@@ -96,10 +104,11 @@ def leakage_tests(
     prev = float(yva.mean())
 
     txn_num = [*ALL_STATS, "n_rules_triggered", *[f"fired_{r}" for r in rule_ids]]
-    cat_real = [c for c in groups["real_or_data_derived"]]
+    numeric = set(groups.get("numeric") or [])
+    cat_real = [c for c in groups["real_or_data_derived"] if c not in numeric]
     syn = groups["synthetic"]
-    cat_syn = [c for c in syn if c != "onboarding_age_days"]
-    num_syn = [c for c in syn if c == "onboarding_age_days"]
+    cat_syn = [c for c in syn if c not in numeric]
+    num_syn = [c for c in syn if c in numeric]
     specs = {
         "kyc_all": (num_syn, cat_real + cat_syn),
         "kyc_real": ([], cat_real),
