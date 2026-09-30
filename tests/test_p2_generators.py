@@ -334,26 +334,78 @@ def _cal_stats(n: int = 50000):
     ), int(pos.sum())
 
 
-def test_calibration_hits_the_band_and_records_actions():
+GLOBAL = dict(RCFG, calibration=dict(RCFG["calibration"], method="global_tau"))
+
+
+def test_revision0_global_tau_hits_the_band():
     st, npos = _cal_stats()
-    res = cal.calibrate(st, RCFG, npos)
+    res = cal.calibrate(st, GLOBAL, npos)
     lo, hi = RCFG["calibration"]["precision_band"]
     assert lo <= res["train_metrics"]["precision"] <= hi
-    assert res["tau_global"] in RCFG["calibration"]["tau_grid"]
-    for r, m in res["train_metrics"]["per_rule"].items():
-        assert not cal._too_strong(m, RCFG), r
+    assert res["method"] == "global_tau" and res["tau_global"] in RCFG["calibration"]["tau_grid"]
     for r, spec in res["rules"].items():
         assert (spec.get("threshold") or spec.get("default")) >= RCFG["rules"][r]["floor"]
 
 
-def test_calibration_refuses_when_band_unreachable():
+def test_revision0_refuses_when_band_unreachable():
     st, npos = _cal_stats()
     bad = dict(
-        RCFG,
-        calibration=dict(RCFG["calibration"], precision_band=[0.5, 0.6], precision_target=0.55),
+        GLOBAL,
+        calibration=dict(GLOBAL["calibration"], precision_band=[0.5, 0.6], precision_target=0.55),
     )
     with pytest.raises(cal.CalibrationError, match="no tau"):
         cal.calibrate(st, bad, npos)
+
+
+def _per_rule_stats(n: int = 200000):
+    """Signal planted in R04 (strong), R05 (weak) and nowhere else; others pure noise."""
+    rng = np.random.default_rng(21)
+    pos = rng.random(n) < 0.003
+    cols = {c: rng.lognormal(7, 1, n) for c in rules.ALL_STATS}
+    for c in rules.ALL_STATS:
+        if c.startswith("n_"):
+            cols[c] = rng.poisson(0.3, n).astype(float)
+    # R04: 60% of positives at 8 senders, plus ~1.6% of negatives -> precision ~10%
+    fan_in = np.where(rng.random(n) < 0.016, 8.0, rng.poisson(0.5, n))
+    cols["n_distinct_senders"] = np.where(pos & (rng.random(n) < 0.6), 8.0, fan_in)
+    # R05: 20% of positives at 7 receivers, plus ~1% of negatives -> precision ~6%
+    fan_out = np.where(rng.random(n) < 0.01, 7.0, rng.poisson(0.8, n))
+    cols["n_distinct_receivers"] = np.where(pos & (rng.random(n) < 0.2), 7.0, fan_out)
+    df = pl.DataFrame({"peer_group": ["Corporation"] * n})
+    return df.with_columns(
+        *[pl.Series(k, v) for k, v in cols.items()], pl.Series("is_pos", pos)
+    ), int(pos.sum())
+
+
+def test_revision1_picks_the_loosest_level_meeting_the_target_and_drops_noise():
+    st, npos = _per_rule_stats()
+    cfg = dict(RCFG, calibration=dict(RCFG["calibration"], min_active_rules=1))
+    res = cal.calibrate(st, cfg, npos)
+    assert res["method"] == "per_rule" and res["tau_global"] is None
+    act = {x["rule"]: x for x in res["actions"] if x["action"].startswith(("select", "drop"))}
+    assert act["R04_FAN_IN"]["action"] == "select"
+    for noise in ("R06_RAPID_IN_OUT", "R08_CROSS_CURRENCY_CHURN", "R09_ROUND_AMOUNTS"):
+        assert act[noise]["action"].startswith("drop"), noise
+        assert not res["rules"][noise]["active"]
+    # the chosen level meets the target and nothing looser does
+    target = RCFG["calibration"]["precision_target"]
+    n_min = RCFG["calibration"]["per_rule_min_true_alerts"]
+    tab = [t for t in res["tau_curve"] if t["rule"] == "R04_FAN_IN"]
+    chosen = act["R04_FAN_IN"]["tau"]
+    ok = [
+        t
+        for t in tab
+        if t["precision"] is not None and t["precision"] >= target and t["n_true"] >= n_min
+    ]
+    assert chosen == min(t["tau"] for t in ok)
+    lo, hi = RCFG["calibration"]["precision_band"]
+    assert lo <= res["train_metrics"]["precision"] <= hi
+
+
+def test_revision1_refuses_with_too_few_rules():
+    st, npos = _per_rule_stats()
+    with pytest.raises(cal.CalibrationError, match="fewer than 6 active rules"):
+        cal.calibrate(st, RCFG, npos)
 
 
 def test_calibration_firing_equals_runtime_firing():

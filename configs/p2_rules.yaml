@@ -63,17 +63,29 @@ rules:
 calibration:
   period: TRAIN             # thresholds use TRAIN only (data-access matrix)
   quantile_interpolation: higher   # the threshold is always an observed value
-  # One global sensitivity knob tau shared by all rules (fewer tuned parameters, easier to
-  # defend than nine separately tuned thresholds). Grid, strict to loose:
-  tau_grid: [0.99999, 0.99995, 0.9999, 0.9998, 0.9995, 0.999, 0.998, 0.995, 0.99]
   min_peer_rows: 1000       # smaller entity-type groups use the all-accounts quantile
   # Alert precision target (TRUE alerts / all alerts) on TRAIN. Industry reports 90-99% false
   # positives in rule-based monitoring (i.e. precision 1-10%); 5% sits in the middle of the
   # task band [2%, 10%] and still gives thousands of positive alerts for evaluation.
   precision_target: 0.05
   precision_band: [0.02, 0.10]
-  # choose the grid tau whose combined TRAIN precision is closest to target (in log space)
-  # among those inside the band; tie -> higher recall. None inside the band -> stop (no silent fix).
+  # Threshold levels: tau = TRAIN quantile of the rule statistic (0.0 = the domain floor only).
+  tau_grid: [0.99999, 0.99995, 0.9999, 0.9998, 0.9995, 0.999, 0.998, 0.995, 0.99, 0.98, 0.95, 0.9, 0.0]
+
+  # ---- REVISION 1 (2026-09-30, approved by Dani) --------------------------------------------
+  # Revision 0 (declared before any run): ONE global tau for all rules, chosen as the tau whose
+  # combined TRAIN precision is closest to the target. Result on HI-Medium TRAIN (p2_results.json,
+  # run 2026-09-30): tau=0.99995, precision 6.3% but recall 0.9% (~355 alerts/day, ~22 true/day):
+  # in band, but it cannot meet the feasibility gates. Cause (docs/p2/p2_train_diagnostics.json):
+  # noise rules (R06/R08/R09) force the shared knob so strict that the useful rules barely fire.
+  # Revision 1: each rule gets its OWN tau = the loosest grid level at which the rule alone reaches
+  # TRAIN precision >= precision_target with >= per_rule_min_true_alerts true alerts. A rule with
+  # no such level is dropped (recorded). per_rule_min_true_alerts = 10 was chosen AFTER seeing the
+  # diagnostics (with 20, R01 would drop and only 5 rules would remain); stated openly.
+  # Everything else is unchanged: band check, too-strong check, recall ceiling, feasibility gates.
+  method: per_rule
+  per_rule_min_true_alerts: 10
+  min_active_rules: 6       # task 3: 6-10 rules
   # Too-strong rule (task 5, "no rule near-perfect"), declared before measuring:
   too_strong:
     precision_above: 0.25   # 5x the target precision ...

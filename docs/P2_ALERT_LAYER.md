@@ -81,9 +81,28 @@ Edge cases:
 
 `threshold_r = max(floor_r, TRAIN quantile_τ(stat_r))`, with R02 computed per entity type.
 
-1. One global τ is chosen from a grid: the value whose TRAIN alert precision is closest to the **5% target**, within the band [2%, 10%]. Industry reports 90–99% false positives, i.e. 1–10% precision.
-2. **Too strong** (declared in advance) means TRAIN precision > 25% **and** recall > 5%. A rule that is too strong gets its own τ loosened step by step; if the grid runs out, the rule is dropped. Every action is logged in the thresholds file.
-3. The layer's recall must stay below 95%. Laundering that the rules miss is out of scope: the system triages alerts, it does not search for un-alerted laundering.
+**Revision 0** (declared before any run, now replaced): one global τ for all rules, chosen as the value whose TRAIN precision is closest to the **5% target** within the band [2%, 10%]. Industry reports 90–99% false positives, i.e. 1–10% precision. On HI-Medium TRAIN (run of 2026-09-30) it chose τ = 0.99995:
+- precision 6.3%, so formally inside the band;
+- but only 0.9% of laundering account-days caught, about 22 true alerts/day, which cannot meet the feasibility gates.
+
+The per-rule diagnostic (`docs/p2/p2_train_diagnostics.json`, TRAIN only) showed the cause: noise rules (R06, R08, R09) forced the shared knob so strict that the useful rules barely fired.
+
+**Revision 1** (approved by Dani 2026-09-30):
+1. Each rule gets its **own** τ: the loosest grid level at which the rule alone reaches TRAIN precision ≥ 5% with ≥ 10 true alerts. A rule with no such level is dropped. Expected from the diagnostic: R06, R08 and R09 drop; R01–R05 and R07 stay.
+   - Declared openly: the minimum of 10 true alerts was chosen *after* seeing the diagnostic. With 20, R01 would drop and only 5 rules would remain, below the task's minimum of 6.
+2. **Unchanged:**
+   - **Too strong** means TRAIN precision > 25% **and** recall > 5%. Such a rule gets its τ loosened step by step, or is dropped. Every action is logged in the thresholds file.
+   - The combined precision must land in [2%, 10%].
+   - At least 6 rules must stay active.
+   - The layer's recall must stay below 95%.
+   - The feasibility gates still apply.
+3. Expected on TRAIN, from the diagnostic and before overlaps:
+   - about 3,350 alerts/day and about 6% precision;
+   - about 8% of laundering account-days caught.
+   - **Fan-in produces about 72% of the true alerts**, because most laundering account-days are single "legs" that look ordinary, and only hub accounts stand out.
+   - Laundering the rules miss is out of scope: the system triages alerts, it does not search for un-alerted laundering. This is reported as a limitation.
+
+**Note for P6 (approved with revision 1):** the evaluation sample is **stratified by triggered rule**, and agent results are reported per rule. Otherwise fan-in cases would dominate the agent evaluation.
 
 Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 - TRAIN and VALIDATION, per rule: volume, precision, recall, alerts only this rule caught, and pairwise overlap P(b | a).

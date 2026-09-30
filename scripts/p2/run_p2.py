@@ -257,6 +257,7 @@ def stage_calibrate(P: Paths, split: Split, rcfg: dict, pos: pl.DataFrame, cp: C
             "p2_split.yaml": sha256(cp.split),
             "p2_fx_usd_per_unit.yaml": sha256(P.fx),
         },
+        "method": res["method"],
         "tau_global": res["tau_global"],
         "rules": res["rules"],
         "actions": res["actions"],
@@ -270,6 +271,7 @@ def stage_calibrate(P: Paths, split: Split, rcfg: dict, pos: pl.DataFrame, cp: C
         {
             "tau_curve": res["tau_curve"],
             "actions": res["actions"],
+            "method": res["method"],
             "tau_global": res["tau_global"],
             "train": res["train_metrics"],
         }

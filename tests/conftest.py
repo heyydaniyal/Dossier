@@ -22,6 +22,9 @@ def _run_fixture_pipeline(root: Path) -> dict:
     cfg["calibration"]["too_strong"] = {"precision_above": 1.01, "recall_above": 1.01}
     cfg["calibration"]["max_layer_recall"] = 1.01
     cfg["calibration"]["min_peer_rows"] = 50
+    cfg["calibration"]["precision_target"] = 0.0
+    cfg["calibration"]["per_rule_min_true_alerts"] = 0
+    cfg["calibration"]["min_active_rules"] = 1
     rules_path = root / "rules.yaml"
     rules_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
     cp = run_p2.ConfigPaths(rules=rules_path, sources=info["sources"])

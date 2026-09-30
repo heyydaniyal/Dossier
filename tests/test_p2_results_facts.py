@@ -18,8 +18,9 @@ from src.data.kyc import KYC_COLUMNS
 
 ROOT = Path(__file__).resolve().parents[1]
 RES_PATH = ROOT / "docs" / "p2" / "p2_results.json"
-pytestmark = pytest.mark.skipif(not RES_PATH.is_file(), reason="P2 results not produced yet")
 RES = json.loads(RES_PATH.read_text(encoding="utf-8")) if RES_PATH.is_file() else {}
+# skipped until the full run (calibrate + build) has produced the results file
+pytestmark = pytest.mark.skipif("build" not in RES, reason="P2 build results not produced yet")
 RULES = yaml.safe_load((ROOT / "configs" / "p2_rules.yaml").read_text(encoding="utf-8"))
 KYC = yaml.safe_load((ROOT / "configs" / "p2_kyc.yaml").read_text(encoding="utf-8"))
 DISP = yaml.safe_load((ROOT / "configs" / "p2_dispositions.yaml").read_text(encoding="utf-8"))
