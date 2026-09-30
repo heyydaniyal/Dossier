@@ -412,7 +412,19 @@ def stage_build(
         counts["TEST_regime_B_unseen_accounts"]["n_positive_alerts"]
         < fz["regime_b_min_positive_alerts"]
     )
-    out["feasibility"] = {"counts": counts, "gates": gates, "all_pass": all(gates.values())}
+    accepted = {d["gate"]: d for d in fz.get("accepted_deviations") or []}
+    for g in accepted:
+        if g not in gates:
+            raise RuntimeError(f"accepted deviation for unknown gate {g}")
+    failing = sorted(g for g, ok in gates.items() if not ok)
+    out["feasibility"] = {
+        "counts": counts,
+        "gates": gates,
+        "all_pass": not failing,
+        "failing_gates": failing,
+        "accepted_deviations": sorted(g for g in failing if g in accepted),
+        "all_pass_with_accepted_deviations": all(g in accepted for g in failing),
+    }
 
     # ---- KYC (runtime store) + planting (eval record)
     _step("synthetic KYC")

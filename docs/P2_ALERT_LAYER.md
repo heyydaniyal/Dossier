@@ -124,6 +124,11 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 - Gates, declared in advance, on positive alerts: TRAIN ≥ 1000, VALIDATION ≥ 200, CALIBRATION ≥ 300, TEST ≥ 400.
 - Each agent group needs ≥ 150 positives, and the largest TEST component may hold ≤ 20% of TEST positives.
 - The boundaries may be adjusted **once** if a gate fails; then `p2_split.yaml` → `status: FROZEN`.
+- **Documented deviation (decided by Dani, 2026-09-30):** TRAIN has **721** positive alerts against a gate of 1,000. It is recorded in `p2_split.yaml → feasibility.accepted_deviations` with the reason.
+  - Moving boundaries cannot reach 1,000: adding 09-06 gives about 920 and starves CALIBRATION.
+  - Re-tuning the rules after the TEST feasibility counts were computed would be harder to defend.
+  - 721 is enough for the P4 model.
+  - The gate value itself is unchanged, and `tests/test_p2_results_facts.py` accepts only deviations recorded with the exact measured value.
 
 ## 7. AGENT-DEV / AGENT-TEST
 

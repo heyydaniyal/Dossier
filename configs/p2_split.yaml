@@ -68,3 +68,16 @@ feasibility:
   min_positive_alerts_per_agent_group: 150
   max_share_of_test_positives_in_one_component: 0.20
   regime_b_min_positive_alerts: 100   # below this, regime B is reported as underpowered (not a gate)
+  # Documented deviations from the gates above (never silent; the gate value itself is unchanged).
+  accepted_deviations:
+    - gate: TRAIN_min_positive
+      measured_positive_alerts: 721       # HI-Medium build 2026-09-30 (docs/p2/p2_results.json)
+      required: 1000
+      decided_by: Dani
+      decided_on: "2026-09-30"
+      reason: >-
+        1,000 was a rough pre-set figure. Moving boundaries cannot reach it (adding 09-06 to TRAIN
+        gives ~920 and starves CALIBRATION), and re-tuning rules after the TEST feasibility counts
+        were computed would be harder to defend. 721 positives among 20,654 TRAIN alerts is enough
+        for the P4 model (~20 features x ~20 events per feature = ~400). Smaller TRAIN is reported
+        as a limitation; P4 time-series CV inside TRAIN must use few folds.

@@ -472,7 +472,7 @@ def test_unknown_numbered_prefix_fails_loudly(tmp_path):
 
 
 def test_revision2_uses_the_band_floor_per_rule_not_the_layer_target():
-    """R05 in the synthetic data is ~6% precise: kept at a 2% floor, dropped at an 8% floor (R04 ~10% stays)."""
+    """Synthetic R05 is ~6% precise: kept at a 2% floor, dropped at 8% (R04, ~10%, stays)."""
     st, npos = _per_rule_stats()
     base = dict(RCFG["calibration"], min_active_rules=1)
     assert RCFG["calibration"]["per_rule_min_precision"] == RCFG["calibration"]["precision_band"][0]
@@ -482,3 +482,26 @@ def test_revision2_uses_the_band_floor_per_rule_not_the_layer_target():
     assert not drop["rules"]["R05_FAN_OUT"]["active"]
     per = keep["train_metrics"]["per_rule"]["R04_FAN_IN"]
     assert 0 <= per["n_true_only_this_rule"] <= per["n_true"]
+
+
+def test_kyc_diagnostic_never_keeps_test_rows(tmp_path):
+    """Dani's rule: TEST is not read without asking. The diagnostic loads TRAIN/VALIDATION only."""
+    from scripts.p2 import diagnose_kyc
+    from scripts.p2.run_p2 import Paths
+
+    alerts, labels, kyc = _leak_data(2000)
+    test = alerts.head(20).with_columns(
+        pl.lit("TEST").alias("period"), (pl.lit("T") + pl.col("alert_id")).alias("alert_id")
+    )
+    P = Paths(tmp_path, "SYN", ROOT / "configs")
+    P.runtime.mkdir(parents=True)
+    P.eval.mkdir(parents=True)
+    pl.concat([alerts, test], how="diagonal").write_parquet(P.alerts)
+    test_labels = test.select("alert_id").with_columns(pl.lit(True).alias("is_true_positive"))
+    pl.concat([labels, test_labels]).write_parquet(P.labels)
+    a, lab = diagnose_kyc._load(P)
+    assert set(a["period"]) == {"TRAIN", "VALIDATION"}
+    assert not lab["alert_id"].str.starts_with("T").any()
+    assert lab.height == a.height == alerts.height
+    src = (ROOT / "scripts" / "p2" / "diagnose_kyc.py").read_text(encoding="utf-8")
+    assert "planting" not in src.split('"""', 2)[2].replace('kcfg["planting"]', "")

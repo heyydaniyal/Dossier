@@ -62,9 +62,19 @@ def test_no_rule_is_near_perfect_on_train():
     assert len(RES["build"]["rule_metrics"]["TRAIN"]["per_rule"]) >= 6
 
 
-def test_feasibility_gates_pass():
+SPLIT = yaml.safe_load((ROOT / "configs" / "p2_split.yaml").read_text(encoding="utf-8"))
+
+
+def test_feasibility_gates_pass_or_are_documented_deviations():
     f = RES["build"]["feasibility"]
-    assert f["all_pass"], f["gates"]
+    accepted = {d["gate"]: d for d in SPLIT["feasibility"].get("accepted_deviations") or []}
+    failing = [g for g, ok in f["gates"].items() if not ok]
+    for g in failing:
+        assert g in accepted, f"gate {g} fails and is not a documented deviation"
+        per = g.removesuffix("_min_positive")
+        # the deviation must record exactly the measured value (no silent drift)
+        assert f["counts"][per]["n_positive_alerts"] == accepted[g]["measured_positive_alerts"]
+        assert accepted[g]["decided_by"] and accepted[g]["reason"]
     assert set(f["counts"]["TEST"]) == {"n_alerts", "n_positive_alerts", "n_days"}  # counts only
 
 
