@@ -172,6 +172,17 @@ A report-only rerun uses VALIDATION accounts with no TRAIN alert.
 **v2 result and the identity guard (decided by Dani, 2026-09-30).**
 - KYC v2 (label-free) still failed C1 (2.63× prev) and C2 (1.16× prev); C3 and C4 passed.
 - The same test on VALIDATION alerts of accounts **never alerted in TRAIN** gave C1 = 1.01× prev (no signal), and every check passed. So KYC contains no planted clue. What fails is **account recognition**: a stable combination of per-account fields lets a model recognise accounts that recur between TRAIN and VALIDATION.
+- **Final run (v2.1 planting, 2026-09-30):**
+
+  | Check | All VALIDATION alerts | Unseen accounts only (report) |
+  |---|---|---|
+  | C1 KYC-only | 2.04 × prev ✗ (ceiling 2.0) | 0.96 × prev ✓ |
+  | C2 synthetic increment | 0.49 × prev ✗ (ceiling 0.25) | −0.17 × prev ✓ |
+  | C3 txn + KYC − txn | −0.65 × prev ✓ | −0.38 × prev ✓ |
+  | C4 synthetic interaction | −0.14 × prev ✓ | −0.05 × prev ✓ |
+
+  Adding KYC to the transaction features **lowers** PR-AUC (0.206 → 0.172 on all VALIDATION).
+  Identity guard on KYC: seen accounts (1,692 alerts, 28 positives) gain +0.86 × prev; unseen accounts (2,466 alerts, 185 positives) gain −0.38 × prev → **`account_recognition`**. **Consequence: KYC fields are not model features in P3–P5.** The seen subset has only 28 positives, so the seen gain is noisy, but the decision does not depend on it: KYC adds nothing (C3 < 0) on either subset.
 - Any stable per-account attribute (real or synthetic) can do this, so it cannot be "fixed" inside KYC without making KYC useless. The ceilings stay as declared, and the failures are recorded in `configs/p2_kyc.yaml → accepted_ceiling_failures` with the exact measured values of the final run. A results test accepts a failed ceiling only if it is recorded there **and** the unseen-accounts rerun passes every check.
 - The real risk is a **model** that looks good by recognising accounts. It is blocked by a binding rule (`identity_guard` in `configs/p2_kyc.yaml`, code in `src/eval/identity_guard.py`):
   - For P3–P5, every model feature group is measured on VALIDATION separately for accounts **seen** in TRAIN and **unseen** accounts: gain = PR-AUC(base + group) − PR-AUC(base) in each subset, divided by that subset's prevalence. Raw lift is not compared, because seen and unseen accounts are different populations (the transaction-only model has 4.0× lift on all VALIDATION vs 1.43× on unseen).
@@ -186,6 +197,14 @@ A report-only rerun uses VALIDATION accounts with no TRAIN alert.
 - If the behaviour recurs later, the profile plausibly explains the later alert, **for launderers and legitimate customers alike**. The Defence has something real to argue, and nothing uses a label or a future date.
 - **The v1 firewall exception is removed.**
 - **v2.1 (Dani, 2026-09-30, declared before the rerun).** v2 used the top 1% and probability 0.5. Realised planted rates among pre-TEST alerted accounts were only 7.4% (legitimate) and 3.4% (laundering): too little for the Defence to work with. v2.1 widens candidates to the top 5% and plants every candidate. The new rates are measured, not promised.
+- **v2.1 measured** (27,673 accounts with a pre-TEST alert; 204,481 accounts planted overall):
+
+  | | Laundering accounts (1,406) | Legitimate accounts (26,267) |
+  |---|---|---|
+  | Has an explaining profile | 12.7% | 23.9% |
+  | Profile explains its own alert's rule | 6.1% | 16.1% |
+
+  Legitimate accounts get a profile about twice as often as laundering accounts. Planting is label-free, so this comes from the generator's own behaviour: accounts with a very pronounced burn-in behaviour are more often legitimate. It is realistic (most innocent explanations belong to innocent customers) and it means a profile is **weak** evidence for innocence, not proof. 1 in 16 laundering accounts carries a profile that explains its own alert: exactly the "plausible but wrong" case the Defence must not win automatically. P6 must include such cases in Tier B.
 - **Realised rates are measured on pre-TEST alerted accounts** and reported as `build.kyc.planting`:
   - planted rate for real vs false alerted accounts;
   - "explains its own alert" rate.

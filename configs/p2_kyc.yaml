@@ -127,8 +127,10 @@ ceilings:
 
 # ---- Outcome of C1/C2 and the guard that replaces them downstream (Dani, 2026-09-30) ------------
 # KYC v2 run (2026-09-30): C1 = 2.63x prev and C2 = 1.16x prev FAILED; C3 and C4 passed.
-# The same test on VALIDATION accounts never alerted in TRAIN gave C1 = 1.01x (no signal) and all
-# checks passing. Meaning: KYC carries no planted clue; the failure is ACCOUNT RECOGNITION (stable
+# KYC v2.1 run (final, 2026-09-30): C1 = 2.04x and C2 = 0.49x FAILED; C3 = -0.65x, C4 = -0.14x
+# passed (KYC LOWERS PR-AUC when added to transaction features).
+# The same test on VALIDATION accounts never alerted in TRAIN gave C1 = 1.01x (v2) / 0.96x (v2.1),
+# i.e. no signal, and all checks passing. Meaning: KYC carries no planted clue; the failure is ACCOUNT RECOGNITION (stable
 # per-account field combinations identify accounts that recur between TRAIN and VALIDATION).
 # Ceilings are unchanged and the failure stays recorded (accepted_ceiling_failures, final values
 # filled in from the final run). The real risk is in models, so it is blocked there:
@@ -150,7 +152,23 @@ identity_guard:
   # If KYC gets 'account_recognition', P3 must not use KYC fields as model features (agents may
   # still read KYC as case context).
   required_unseen_check_pass: true   # the P2 KYC test on unseen accounts must pass (all checks)
-accepted_ceiling_failures: []        # filled from the final `run_p2 kyc` numbers, then frozen
+# Values copied exactly from docs/p2/p2_results.json (build.kyc.leakage.checks) of the v2.1 run
+# (config sha256 b371a499..., finished 2026-09-30T11:32:29Z). A results test requires an exact match.
+accepted_ceiling_failures:
+  - check: C1_kyc_only
+    measured_value: 0.1043833716     # 2.04 x prev; ceiling 0.1024531025 (2.0 x prev)
+    decided_by: Dani
+    decided_on: "2026-09-30"
+    reason: &guard_reason >-
+      Account recognition, not a planted clue: on VALIDATION accounts never alerted in TRAIN every
+      check passes (C1 = 0.96 x prev). The identity guard gives KYC 'account_recognition' (seen gain
+      +0.86 x prev, unseen gain -0.38 x prev), so KYC fields are excluded from P3-P5 model
+      features. Agents may read KYC as case context.
+  - check: C2_synthetic_increment
+    measured_value: 0.02508205783    # 0.49 x prev; ceiling 0.01280663781 (0.25 x prev)
+    decided_by: Dani
+    decided_on: "2026-09-30"
+    reason: *guard_reason
 
 attribute_groups:                # categorical unless listed under numeric
   real_or_data_derived: [entity_type, bank_country, country_risk, expected_activity_band]
