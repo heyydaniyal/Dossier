@@ -189,7 +189,10 @@ def test_group_key_is_secret_and_only_its_hash_is_recorded(monkeypatch, tmp_path
     monkeypatch.setenv("DOSSIER_AGENT_SPLIT_KEY", "short")
     with pytest.raises(RuntimeError):
         run_p2.agent_split_key(cfg, split)
-    secret = "f" * 64
+    monkeypatch.setenv("DOSSIER_AGENT_SPLIT_KEY", "a guessable passphrase of 32+ characters")
+    with pytest.raises(RuntimeError):
+        run_p2.agent_split_key(cfg, split)
+    secret = "0123456789abcdef" * 4
     monkeypatch.setenv("DOSSIER_AGENT_SPLIT_KEY", secret)
     key, rec = run_p2.agent_split_key(cfg, split)
     assert key == secret and rec["source"] == "env" and secret not in json.dumps(rec)

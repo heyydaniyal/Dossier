@@ -19,9 +19,11 @@ declared_on: "2026-10-05"
 # the group each TEST account would get on its own; an account whose real group differs must be
 # in a multi-account component, i.e. linked to laundering (demo: precision 1.0). A SECRET key
 # removes that: each component's group is a coin flip nobody can predict. The key lives only in
-# Dani's .env (DOSSIER_AGENT_SPLIT_KEY, >= 32 characters, never committed); the results JSON
-# records its sha256 so a re-run can be checked. Consequence: groups are re-drawn (a component no
-# longer keeps its v1 group). Allowed values: env (recommended) | p2_split_public (v1 behaviour).
+# Dani's .env (DOSSIER_AGENT_SPLIT_KEY, 64 hex characters = 256 random bits, never committed); the
+# results JSON records its sha256 so a re-run can be checked. Consequence: groups are re-drawn (a
+# component no longer keeps its v1 group). Allowed values: env (recommended) | p2_split_public (v1 behaviour).
+# Note: the key holder (Dani) can still recompute the linkage; acceptable only because all
+# AGENT-TEST cases are built and committed in P6 before any prompt work (holdout rule fallback).
 group_key:
   source: env
   env_var: DOSSIER_AGENT_SPLIT_KEY

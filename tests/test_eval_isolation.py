@@ -59,8 +59,6 @@ TRUTH_TOKENS = (
     "patterns.txt",
     "_trans.parquet",
     "trans.csv",
-    "interim/",  # the P1 interim files are read only through src/data/transactions.py
-    "interim\\",
 )
 DATA_SUFFIXES = (".parquet", ".csv", ".txt")  # a wildcard over these is a blind data read
 # Exact (whole-literal) eval-store column names, compared after lowercasing and mapping spaces and
@@ -77,17 +75,17 @@ TRUTH_EXACT_COLUMNS = {
     "attempt_ids",
     "has_unattributed",
     "n_laundering_txns",
-    "is_pos",
     "laundering_account",
-    "agent_group",
-}
+}  # "agent_group", "is_pos": too generic for a source scan (contract check still covers them)
 # Path segments: flagged only where a path is being built (a / b, Path(...), joinpath, os.path.join)
 PATH_SEGMENTS = {"eval", "devtools", "archive"}
-PATH_CALLS = {"Path", "PurePath", "PosixPath", "WindowsPath", "joinpath", "join"}
-# Listing data directories (glob/rglob/walk/...) is how a store could be found without naming it.
-# Banned in packages that never need to list files; src/rag (corpus) and src/data may.
+PATH_CALLS = {"Path", "PurePath", "PosixPath", "WindowsPath", "joinpath", "join", "with_name",
+              "with_stem", "with_suffix"}  # fmt: skip
+# Listing a DATA directory (glob/rglob/walk/...) is how a store could be found without naming it.
+# Flagged when the listed path or pattern mentions a data root; listing prompts, model artefacts
+# or the regulation corpus is fine (second-pass review: a package-wide ban blocked planned code).
 LISTING_CALLS = {"glob", "rglob", "iglob", "walk", "listdir", "scandir", "iterdir"}
-NO_LISTING_DIRS = ("src/features", "src/models", "src/tools", "src/agents", "src/app")
+DATA_ROOT_HINTS = ("data", "p2", "interim", "raw")
 CHECK4_EXEMPT = ("src/contracts/models.py",)
 # Narrow, reasoned exceptions (file -> exact literals / checks allowed there):
 #  - verify_interim checks the sidecar sha256 of all three P1 files; it never opens their content.
@@ -102,7 +100,13 @@ LOADER_MODULE = "src/data/transactions.py"
 SYS_PATH_EXEMPT = ("src/app/streamlit_app.py",)
 SYS_PATH_MUTATORS = {"insert", "append", "extend", "remove", "clear", "pop"}
 DYNAMIC_CALLS = {"__import__", "exec", "eval", "compile"}
-DYNAMIC_ATTRS = {"import_module", "spec_from_file_location", "run_path", "run_module"}
+DYNAMIC_ATTRS = {
+    "import_module",
+    "spec_from_file_location",
+    "run_path",
+    "run_module",
+    "__import__",
+}
 SAFE_TRANS_LOADERS = {"scan_transactions", "verify_interim"}
 DYNAMIC_MODULES = ("runpy", "importlib")
 
@@ -183,6 +187,16 @@ def _path_segment_ids(tree: ast.AST) -> set[int]:
     return out
 
 
+def _mentions_data_root(node: ast.AST) -> bool:
+    """A string constant inside node names a data root ('data', 'data/p2', 'interim', ...)."""
+    for c in ast.walk(node):
+        if isinstance(c, ast.Constant) and isinstance(c.value, str):
+            parts = c.value.replace("\\", "/").lower().split("/")
+            if any(p in DATA_ROOT_HINTS for p in parts):
+                return True
+    return False
+
+
 def _violations_in_source(src: str, rel: str, pkg_parts: tuple[str, ...] = ()) -> list[str]:
     tree = ast.parse(src, filename=rel)
     docs = _docstring_ids(tree)
@@ -191,7 +205,6 @@ def _violations_in_source(src: str, rel: str, pkg_parts: tuple[str, ...] = ()) -
     allowed = ALLOWED_LITERALS.get(rel, set())
     safe_interim = _safe_interim_calls(tree)
     segments = _path_segment_ids(tree)
-    no_listing = any(rel.startswith(d + "/") for d in NO_LISTING_DIRS)
     out: list[str] = []
     seen_str: set[int] = set()
     for node in ast.walk(tree):
@@ -225,8 +238,8 @@ def _violations_in_source(src: str, rel: str, pkg_parts: tuple[str, ...] = ()) -
                 and rel not in SYS_PATH_EXEMPT
             ):
                 out.append(f"{rel}:{ln} changes sys.path")
-            if no_listing and cn in LISTING_CALLS:
-                out.append(f"{rel}:{ln} lists a directory ('{cn}')")
+            if cn in LISTING_CALLS and check4 and _mentions_data_root(node):
+                out.append(f"{rel}:{ln} lists a data directory ('{cn}')")
             if cn == "interim_path" and check4 and rel != LOADER_MODULE:
                 kinds = [_fold(a) for a in [*node.args, *(k.value for k in node.keywords)]]
                 if "patterns" in kinds:
@@ -260,7 +273,11 @@ def _violations_in_source(src: str, rel: str, pkg_parts: tuple[str, ...] = ()) -
                 or _norm(s) in TRUTH_EXACT_COLUMNS
                 or (low in PATH_SEGMENTS and id(node) in segments)
                 or any(f"/{g}/" in low or f"{UNKNOWN}{g}{UNKNOWN}" in low for g in PATH_SEGMENTS)
-                or ("*" in low and any(x in low for x in DATA_SUFFIXES))
+                or (
+                    "*" in low
+                    and any(x in low for x in DATA_SUFFIXES)
+                    and any(h in low.replace("\\", "/").split("/") for h in DATA_ROOT_HINTS)
+                )
             ):
                 out.append(f"{rel}:{ln} ground-truth / eval-store literal '{s[:60]}'")
     return out
@@ -366,8 +383,10 @@ PROBES = {
     "cols = ['attempt_id']\n": "lit",
     "import polars as pl\nt = pl.scan_parquet('data/interim/*_trans.parquet')\n": "lit",
     "import polars as pl\nt = pl.scan_parquet('data/interim/*.parquet')\n": "glob read",
-    "import polars as pl\nt = pl.scan_parquet(base + '/*.parquet')\n": "glob read",
-    "t = pl.read_parquet('data\\\\interim\\\\HI-Medium_x.parquet')\n": "win path",
+    "import os\nfor r, d, f in os.walk('data'):\n    pass\n": "walk data",
+    "p = runtime_path('alerts.parquet').parent.with_name('eval')\n": "with_name",
+    "import builtins\nm = builtins.__import__('x')\n": "builtins import",
+    "t = pl.read_parquet('data\\\\interim\\\\HI-Medium_trans.parquet')\n": "win path",
     "y = pl.read_parquet('data\\\\p2\\\\HI-Medium\\\\eval\\\\a.parquet')\n": "win",
     "import polars as pl\nt = pl.read_csv('data/raw/HI-Medium_Trans.csv')\n": "lit",
     "from pathlib import Path\nfs = list(Path('data/p2/HI-Medium').rglob('*.parquet'))\n": "list",
@@ -395,6 +414,13 @@ CLEAN = (
     "here = sys.path[0]\n"
     "from src.data.periods import ROOT\n"
     "interim = ROOT / 'data' / 'interim'\n"
+    "from pathlib import Path\n"
+    "prompts = sorted(Path('prompts').glob('*.md'))\n"
+    "corpus = list(Path('corpus').rglob('*.txt'))\n"
+    "arts = list(Path('artifacts/models').iterdir())\n"
+    "pat = '*.txt'\n"
+    "ev = {'agent_group': 'deliberation', 'is_pos': True}\n"
+    "msg = 'run the P1 conversion first: data/interim/ is empty'\n"
 )
 
 

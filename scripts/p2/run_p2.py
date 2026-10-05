@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import sys
 import time
@@ -521,9 +522,10 @@ def agent_split_key(svcfg: dict, split: Split) -> tuple[str, dict]:
     elif gk["source"] == "env":
         var = gk["env_var"]
         key = os.environ.get(var) or _dotenv(ROOT / ".env").get(var, "")
-        if len(key) < 32:
+        if not re.fullmatch(r"[0-9a-f]{64}", key):  # 256 random bits: not guessable offline
             raise RuntimeError(
-                f"{var} is not set (or shorter than 32 characters) in the environment or .env. "
+                f"{var} is not set in the environment or .env, or is not 64 lowercase hex "
+                "characters. "
                 'Generate one: uv run python -c "import secrets; print(secrets.token_hex(32))"'
             )
     else:
