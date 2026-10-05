@@ -2,7 +2,7 @@
   "p2_version": "1.0.0",
   "variant": "HI-Medium",
   "split": {
-    "status": "PROVISIONAL",
+    "status": "FROZEN",
     "l_max_hours": 24.0,
     "periods": {
       "TRAIN": [
@@ -1039,28 +1039,29 @@
     }
   },
   "configs_sha256": {
+    "p2_agent_split_v2.yaml": "74edc73f4dd8ac98eecf2326cf959764c090d1d05508fcd50b28e8d9aae0c9ef",
     "p2_dispositions.yaml": "698144e3378fc7be15997071c35d8a3c9d2949f5ac95ca7087a22bf32e9b3af0",
     "p2_fx_usd_per_unit.yaml": "8df020502074b5d73c5718e8fa613a1ec844f39d815a10ee373bae040cac25df",
     "p2_kyc.yaml": "eac102eb59346733b2991600e44768265b2a9f918f6a07b5eaf57511d5df7164",
     "p2_rule_thresholds.yaml": "90f9a4995e3fa52ac8df30291aeeab359221ab0f86fb72ad86dc293b0dffd719",
     "p2_rules.yaml": "68fadb1b2f7d6f70e09e80b910e96858413d9c27a0ce5b32a00464ad04d8ce39",
-    "p2_split.yaml": "254f75faff529f0a0bbdbce6fb610cc7a9df17d956e5832120e282b4a1e2cb26"
+    "p2_split.yaml": "8c7752e9d761d08af3c2785a3bedd048892f00dbce6a778b505dc478505a8013"
   },
   "run_info": {
-    "finished_at_utc": "2026-09-30T11:38:02+00:00",
+    "finished_at_utc": "2026-10-05T20:56:37+00:00",
     "python": "3.11.4",
     "platform": "Windows-10-10.0.19045-SP0",
     "polars": "1.44.2",
-    "elapsed_s": 73.9,
+    "elapsed_s": 5.3,
     "code_sha256": {
       "p2/__init__.py": "b3f1831675a3956964fde3edf7ccd81ba64a6c70495ee3cd224aaf4cba32348d",
       "p2/calibrate.py": "c95e186d39bbc1d68ce4e4b32f16f5759acd88e9fba77b5ce224e3e04afc7318",
       "p2/diagnose_kyc.py": "fc91b9a197b8cde4caab755aff442f48ec6c0f22bb5454aec80604a9be515ec7",
       "p2/diagnose_train.py": "a4d467fd58ceb51b7d25cc6047ec1cc5e012f620df5066986a823fa060b1c5f6",
       "p2/discover_banks.py": "0f55bdd3fb588ec6aaf9016cc6a9107c9cdd5b7f70e841b050e9d7c42e2a6dad",
-      "p2/dispositions.py": "84761a3d179d3ab05c5339d01d7f7dd0617260ab19a44284c875d418f6a5bcce",
+      "p2/dispositions.py": "a6dfb763b2457e977d89f6f16a27adb01a5fd4eadade7b1b0f480b0976eedffc",
       "p2/kyc_leakage.py": "60615fc8a4fa2aa611c9a086829ed25336107cf1a3d280da797af5965adfcab5",
-      "p2/run_p2.py": "5ac958d872afb51e33e4a2c22767a323edb104448d565ab4b357d7451bcb1cee",
+      "p2/run_p2.py": "ba4c36681ab1bbc514b53bc7ad6edd6f85695e1e71ffd8dd0ff1a31167027047",
       "alerts/__init__.py": "01048f42038e082c5cfb8d9d45e6e66d6c3981a6fb3bdb7a5754b1211924b697",
       "alerts/build.py": "058814783300cf48745dc38ce67e338cb03554a8288da2b8a67afd841010654b",
       "alerts/rules.py": "3bf1b9cfd193fa0bddbf83886a1d122dccb9d5d710a01d270a0338ef89b0bfd2",
@@ -1070,11 +1071,12 @@
       "data/hashing.py": "4323dcd79a321b8e69f94a15e5c5ea3b2032fd92fe0c866ee17de225fc74dc48",
       "data/kyc.py": "77e774b723e782cca19b702acf1daa14c194ee39041f9ca2cf3ab4d31f3c8a19",
       "data/periods.py": "7d47847e67f99ffce1c6580f4d94d1e31c236463ab17dd35002332ba8af7a281",
-      "data/transactions.py": "ae147d116412232cb888b05a047dc7215dfe59ec59d20e663a8caaf6a51d333a",
+      "data/stores.py": "09982ce3dea0c2e5f39ae861cb2a33ba3e7c902f449882b56d8823fcbf0afc51",
+      "data/transactions.py": "671c2ab4698099618cbb862d52c241d3e76eeb0d41795534165792e98704a177",
       "eval/__init__.py": "9ecd3c86a37885e3f4220c59d68c1af4c796a2c2f5ff79795bbc7ef2f657baaf",
       "eval/alert_labels.py": "3b1d060fd223cf537860d7d2cb0610f3cb8a3f856f82fc5ae6587e8e877c9cab",
-      "eval/group_split.py": "7184f44a0975848be172a5ff2b9654da14bcbad5e9d1421a81a810ce13bd72e4",
-      "eval/identity_guard.py": "811f00b7603f029138c443ddf2326cabd0d19c3e22687f4441882fe0b4b2c558",
+      "eval/group_split.py": "b7d86b4d910d5437df5ef0b8b2dd948a705646b9d8832009c1cf09b63938ec02",
+      "eval/identity_guard.py": "4c5b4a54e69e6e3d11cf9ec8653d4e4d690f3c38631612a83b41e06ed45e5efa",
       "eval/labels.py": "2b75bd4d406bce6708e95ab4c97b72af80c8845eb89b67d51772b90bbd176516"
     }
   },
@@ -1348,23 +1350,28 @@
         },
         "TEST_agent_groups": {
           "AGENT-DEV": {
-            "n_alerts": 11689,
-            "n_positive_alerts": 522
+            "n_alerts": 11546,
+            "n_positive_alerts": 418
           },
           "AGENT-TEST": {
-            "n_alerts": 11757,
-            "n_positive_alerts": 498
+            "n_alerts": 11900,
+            "n_positive_alerts": 602
           }
         },
         "TEST_components": {
-          "n_components": 18354,
-          "largest_component_alerts": 62,
-          "largest_component_share_of_positive_alerts": 0.008823529412,
-          "n_components_with_positive": 835,
-          "n_accounts": 18589,
-          "n_attempts_touching_test_alerts": 639
+          "n_components": 18090,
+          "largest_component_alerts": 458,
+          "largest_component_share_of_positive_alerts": 0.1480392157,
+          "n_components_with_positive": 734
         },
-        "regime_B_underpowered": false
+        "regime_B_underpowered": false,
+        "TEST_components_disjointness": {
+          "n_accounts": 18589,
+          "n_attempt_nodes_touching_test_alerts": 696,
+          "n_attempt_nodes_in_both_groups": 0,
+          "n_unattributed_txn_nodes_touching_test_alerts": 5033,
+          "n_unattributed_txn_nodes_in_both_groups": 0
+        }
       },
       "gates": {
         "TRAIN_min_positive": false,
@@ -1663,11 +1670,122 @@
         "closed_legitimate": 18.05
       },
       "n": 37376
+    },
+    "agent_split": {
+      "version": 2,
+      "config_sha256": "74edc73f4dd8ac98eecf2326cf959764c090d1d05508fcd50b28e8d9aae0c9ef",
+      "group_key": {
+        "source": "env",
+        "sha256": "47314ed6e3d3dde7a7184302455e507aeaea02d41d18e3069bc62cb54d59e01e"
+      },
+      "preference_order": [
+        "C_full_laundering_graph",
+        "B_plus_unattributed_any_date",
+        "A_attempts_full"
+      ],
+      "variants": {
+        "A_attempts_full": {
+          "TEST_agent_groups": {
+            "AGENT-DEV": {
+              "n_alerts": 11789,
+              "n_positive_alerts": 524
+            },
+            "AGENT-TEST": {
+              "n_alerts": 11657,
+              "n_positive_alerts": 496
+            }
+          },
+          "TEST_components": {
+            "n_components": 18338,
+            "largest_component_alerts": 66,
+            "largest_component_share_of_positive_alerts": 0.008823529412,
+            "n_components_with_positive": 834
+          },
+          "disjointness_on_full_memberships": {
+            "n_accounts": 18589,
+            "n_attempt_nodes_touching_test_alerts": 696,
+            "n_attempt_nodes_in_both_groups": 0,
+            "n_unattributed_txn_nodes_touching_test_alerts": 5033,
+            "n_unattributed_txn_nodes_in_both_groups": 23
+          },
+          "passes_gates": true
+        },
+        "B_plus_unattributed_any_date": {
+          "TEST_agent_groups": {
+            "AGENT-DEV": {
+              "n_alerts": 11776,
+              "n_positive_alerts": 516
+            },
+            "AGENT-TEST": {
+              "n_alerts": 11670,
+              "n_positive_alerts": 504
+            }
+          },
+          "TEST_components": {
+            "n_components": 18287,
+            "largest_component_alerts": 66,
+            "largest_component_share_of_positive_alerts": 0.009803921569,
+            "n_components_with_positive": 832
+          },
+          "disjointness_on_full_memberships": {
+            "n_accounts": 18589,
+            "n_attempt_nodes_touching_test_alerts": 696,
+            "n_attempt_nodes_in_both_groups": 0,
+            "n_unattributed_txn_nodes_touching_test_alerts": 5033,
+            "n_unattributed_txn_nodes_in_both_groups": 0
+          },
+          "passes_gates": true
+        },
+        "C_full_laundering_graph": {
+          "TEST_agent_groups": {
+            "AGENT-DEV": {
+              "n_alerts": 11546,
+              "n_positive_alerts": 418
+            },
+            "AGENT-TEST": {
+              "n_alerts": 11900,
+              "n_positive_alerts": 602
+            }
+          },
+          "TEST_components": {
+            "n_components": 18090,
+            "largest_component_alerts": 458,
+            "largest_component_share_of_positive_alerts": 0.1480392157,
+            "n_components_with_positive": 734
+          },
+          "disjointness_on_full_memberships": {
+            "n_accounts": 18589,
+            "n_attempt_nodes_touching_test_alerts": 696,
+            "n_attempt_nodes_in_both_groups": 0,
+            "n_unattributed_txn_nodes_touching_test_alerts": 5033,
+            "n_unattributed_txn_nodes_in_both_groups": 0
+          },
+          "passes_gates": true
+        }
+      },
+      "chosen_variant": "C_full_laundering_graph"
     }
   },
   "stores": {
-    "eval/agent_split.parquet": {
+    "archive/agent_split_p2v1.parquet": {
       "sha256": "d5295370ad81335080c78dcea89c64ea91293b8475f6f29dde47221b2a91a9ae",
+      "columns": [
+        "alert_id",
+        "account_key",
+        "agent_group",
+        "component"
+      ],
+      "rows": 23446
+    },
+    "devtools/agent_dev_alert_ids.parquet": {
+      "sha256": "e8c8b6fa29525f4edcd011aa058b4c1b688bf693099c57e82769b7f01cd3c13f",
+      "columns": [
+        "alert_id"
+      ],
+      "rows": 11546
+    },
+    "eval/agent_split.parquet": {
+      "sha256": "52d39e37ae8898ce77b118c519367dca7906853c31890e881870b2224729061b",
       "columns": [
         "alert_id",
         "account_key",
@@ -1726,13 +1844,6 @@
       ],
       "rows": 49668
     },
-    "runtime/agent_dev_alert_ids.parquet": {
-      "sha256": "434325e8aa7feab5831231ac60a1de1b99d39f37d849e2389dc31e02e454a47d",
-      "columns": [
-        "alert_id"
-      ],
-      "rows": 11689
-    },
     "runtime/alerts.parquet": {
       "sha256": "59d1af1fe2eb23c999a026d212bff524f28bfb34b5236380786015ff24ab160b",
       "columns": [
@@ -1786,6 +1897,239 @@
         "kyc_as_of"
       ],
       "rows": 2076983
+    }
+  },
+  "p2v1_original": {
+    "feasibility": {
+      "counts": {
+        "TRAIN": {
+          "n_alerts": 20654,
+          "n_positive_alerts": 721,
+          "n_days": 4
+        },
+        "VALIDATION": {
+          "n_alerts": 4158,
+          "n_positive_alerts": 213,
+          "n_days": 1
+        },
+        "CALIBRATION": {
+          "n_alerts": 12564,
+          "n_positive_alerts": 616,
+          "n_days": 3
+        },
+        "TEST": {
+          "n_alerts": 23446,
+          "n_positive_alerts": 1020,
+          "n_days": 4
+        },
+        "TEST_regime_B_unseen_accounts": {
+          "n_alerts": 10265,
+          "n_positive_alerts": 869
+        },
+        "TEST_agent_groups": {
+          "AGENT-DEV": {
+            "n_alerts": 11689,
+            "n_positive_alerts": 522
+          },
+          "AGENT-TEST": {
+            "n_alerts": 11757,
+            "n_positive_alerts": 498
+          }
+        },
+        "TEST_components": {
+          "n_components": 18354,
+          "largest_component_alerts": 62,
+          "largest_component_share_of_positive_alerts": 0.008823529412,
+          "n_components_with_positive": 835,
+          "n_accounts": 18589,
+          "n_attempts_touching_test_alerts": 639
+        },
+        "regime_B_underpowered": false
+      },
+      "gates": {
+        "TRAIN_min_positive": false,
+        "VALIDATION_min_positive": true,
+        "CALIBRATION_min_positive": true,
+        "TEST_min_positive": true,
+        "AGENT-DEV_min_positive": true,
+        "AGENT-TEST_min_positive": true,
+        "largest_component_share": true
+      },
+      "all_pass": false,
+      "failing_gates": [
+        "TRAIN_min_positive"
+      ],
+      "accepted_deviations": [
+        "TRAIN_min_positive"
+      ],
+      "all_pass_with_accepted_deviations": true
+    },
+    "run_info": {
+      "finished_at_utc": "2026-09-30T11:38:02+00:00",
+      "python": "3.11.4",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "polars": "1.44.2",
+      "elapsed_s": 73.9,
+      "code_sha256": {
+        "p2/__init__.py": "b3f1831675a3956964fde3edf7ccd81ba64a6c70495ee3cd224aaf4cba32348d",
+        "p2/calibrate.py": "c95e186d39bbc1d68ce4e4b32f16f5759acd88e9fba77b5ce224e3e04afc7318",
+        "p2/diagnose_kyc.py": "fc91b9a197b8cde4caab755aff442f48ec6c0f22bb5454aec80604a9be515ec7",
+        "p2/diagnose_train.py": "a4d467fd58ceb51b7d25cc6047ec1cc5e012f620df5066986a823fa060b1c5f6",
+        "p2/discover_banks.py": "0f55bdd3fb588ec6aaf9016cc6a9107c9cdd5b7f70e841b050e9d7c42e2a6dad",
+        "p2/dispositions.py": "84761a3d179d3ab05c5339d01d7f7dd0617260ab19a44284c875d418f6a5bcce",
+        "p2/kyc_leakage.py": "60615fc8a4fa2aa611c9a086829ed25336107cf1a3d280da797af5965adfcab5",
+        "p2/run_p2.py": "5ac958d872afb51e33e4a2c22767a323edb104448d565ab4b357d7451bcb1cee",
+        "alerts/__init__.py": "01048f42038e082c5cfb8d9d45e6e66d6c3981a6fb3bdb7a5754b1211924b697",
+        "alerts/build.py": "058814783300cf48745dc38ce67e338cb03554a8288da2b8a67afd841010654b",
+        "alerts/rules.py": "3bf1b9cfd193fa0bddbf83886a1d122dccb9d5d710a01d270a0338ef89b0bfd2",
+        "data/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "data/accounts.py": "832f82b324815cfd0bf3a705d94694fff41a7016ca60907cef787cb7a123a7b5",
+        "data/fx.py": "4734bf03151751f476f70f46122a40f26d1771a5a8a3334516cd9b33e432a9bf",
+        "data/hashing.py": "4323dcd79a321b8e69f94a15e5c5ea3b2032fd92fe0c866ee17de225fc74dc48",
+        "data/kyc.py": "77e774b723e782cca19b702acf1daa14c194ee39041f9ca2cf3ab4d31f3c8a19",
+        "data/periods.py": "7d47847e67f99ffce1c6580f4d94d1e31c236463ab17dd35002332ba8af7a281",
+        "data/transactions.py": "ae147d116412232cb888b05a047dc7215dfe59ec59d20e663a8caaf6a51d333a",
+        "eval/__init__.py": "9ecd3c86a37885e3f4220c59d68c1af4c796a2c2f5ff79795bbc7ef2f657baaf",
+        "eval/alert_labels.py": "3b1d060fd223cf537860d7d2cb0610f3cb8a3f856f82fc5ae6587e8e877c9cab",
+        "eval/group_split.py": "7184f44a0975848be172a5ff2b9654da14bcbad5e9d1421a81a810ce13bd72e4",
+        "eval/identity_guard.py": "811f00b7603f029138c443ddf2326cabd0d19c3e22687f4441882fe0b4b2c558",
+        "eval/labels.py": "2b75bd4d406bce6708e95ab4c97b72af80c8845eb89b67d51772b90bbd176516"
+      }
+    },
+    "configs_sha256": {
+      "p2_dispositions.yaml": "698144e3378fc7be15997071c35d8a3c9d2949f5ac95ca7087a22bf32e9b3af0",
+      "p2_fx_usd_per_unit.yaml": "8df020502074b5d73c5718e8fa613a1ec844f39d815a10ee373bae040cac25df",
+      "p2_kyc.yaml": "eac102eb59346733b2991600e44768265b2a9f918f6a07b5eaf57511d5df7164",
+      "p2_rule_thresholds.yaml": "90f9a4995e3fa52ac8df30291aeeab359221ab0f86fb72ad86dc293b0dffd719",
+      "p2_rules.yaml": "68fadb1b2f7d6f70e09e80b910e96858413d9c27a0ce5b32a00464ad04d8ce39",
+      "p2_split.yaml": "254f75faff529f0a0bbdbce6fb610cc7a9df17d956e5832120e282b4a1e2cb26"
+    },
+    "stores": {
+      "eval/agent_split.parquet": {
+        "sha256": "d5295370ad81335080c78dcea89c64ea91293b8475f6f29dde47221b2a91a9ae",
+        "columns": [
+          "alert_id",
+          "account_key",
+          "agent_group",
+          "component"
+        ],
+        "rows": 23446
+      },
+      "eval/alert_labels.parquet": {
+        "sha256": "7f14d1a6a37433361a52db6b46e13e6a27dec03e58153ed224abf8cd644ba9ba",
+        "columns": [
+          "alert_id",
+          "is_true_positive",
+          "typologies",
+          "label_definition_id",
+          "n_laundering_txns",
+          "has_unattributed",
+          "attempt_ids"
+        ],
+        "rows": 60822
+      },
+      "eval/laundering_legs.parquet": {
+        "sha256": "ad7a3023ef0fa50ee56f5c918ca364808f2f9f9a4ebb9d95386e26e785a05daf",
+        "columns": [
+          "account_key",
+          "window_start",
+          "row_id",
+          "attempt_id",
+          "typology",
+          "timestamp"
+        ],
+        "rows": 62232
+      },
+      "eval/planting.parquet": {
+        "sha256": "d1f1ca5b4f0c4a3c3fcfd42ada470b1ae8e787f53e66a1834537cc4b12541a89",
+        "columns": [
+          "account_key",
+          "candidate",
+          "planted",
+          "dominant_behaviour",
+          "dominant_percentile",
+          "planted_sector",
+          "planted_band"
+        ],
+        "rows": 1099678
+      },
+      "eval/positive_account_days.parquet": {
+        "sha256": "bbf47cbbf736304f908cbe8dc18dac8ae5a9baaf4f92ac25fd724ed3b26768cd",
+        "columns": [
+          "account_key",
+          "window_start",
+          "n_laundering_txns",
+          "typologies",
+          "has_unattributed",
+          "attempt_ids"
+        ],
+        "rows": 49668
+      },
+      "runtime/agent_dev_alert_ids.parquet": {
+        "sha256": "434325e8aa7feab5831231ac60a1de1b99d39f37d849e2389dc31e02e454a47d",
+        "columns": [
+          "alert_id"
+        ],
+        "rows": 11689
+      },
+      "runtime/alerts.parquet": {
+        "sha256": "59d1af1fe2eb23c999a026d212bff524f28bfb34b5236380786015ff24ab160b",
+        "columns": [
+          "alert_id",
+          "account_key",
+          "window_start",
+          "window_end",
+          "as_of",
+          "created_at",
+          "period",
+          "triggered_rules",
+          "n_rules_triggered",
+          "peer_group",
+          "max_txn_usd",
+          "volume_usd",
+          "n_near_threshold",
+          "n_distinct_senders",
+          "n_distinct_receivers",
+          "pass_through_usd",
+          "high_risk_channel_usd",
+          "n_cross_currency",
+          "n_round_amounts",
+          "n_txn",
+          "in_usd",
+          "out_usd"
+        ],
+        "rows": 60822
+      },
+      "runtime/dispositions.parquet": {
+        "sha256": "ca4aa3b290d59969333a5539bd07388f85de05c67c1735116a058a183ce7f0f9",
+        "columns": [
+          "alert_id",
+          "account_key",
+          "disposition",
+          "closed_at"
+        ],
+        "rows": 37376
+      },
+      "runtime/kyc.parquet": {
+        "sha256": "e5b524d604e36bd68ba90d89e0aba79ca03eaea7fa99e68440ca5fb8c6e15a5c",
+        "columns": [
+          "account_key",
+          "entity_type",
+          "bank_location",
+          "bank_country",
+          "country_risk",
+          "sector_or_occupation",
+          "expected_activity_band",
+          "onboarding_year",
+          "customer_risk_rating",
+          "kyc_as_of"
+        ],
+        "rows": 2076983
+      }
+    },
+    "moved_to_other_group_in_v2": {
+      "n_alerts": 11563,
+      "n_positive_alerts": 510
     }
   }
 }

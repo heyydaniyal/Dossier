@@ -222,6 +222,50 @@ DOC_FACTS = [
         ],
     ),
     (
+        "**Corrected (v2):** chosen variant `{}`; AGENT-DEV {} positive alerts ({} alerts), "
+        "AGENT-TEST {} ({}); largest TEST component {} alerts, {} of TEST positives",
+        [
+            (B + "agent_split.chosen_variant", "str"),
+            (FE + "TEST_agent_groups.AGENT-DEV.n_positive_alerts", "int"),
+            (FE + "TEST_agent_groups.AGENT-DEV.n_alerts", "int"),
+            (FE + "TEST_agent_groups.AGENT-TEST.n_positive_alerts", "int"),
+            (FE + "TEST_agent_groups.AGENT-TEST.n_alerts", "int"),
+            (FE + "TEST_components.largest_component_alerts", "int"),
+            (FE + "TEST_components.largest_component_share_of_positive_alerts", "pct2"),
+        ],
+    ),
+    *[
+        (
+            f"| {label} | {{}} | {{}} | {{}} | yes |",
+            [
+                (
+                    B + f"agent_split.variants.{v}.TEST_agent_groups.AGENT-DEV.n_positive_alerts",
+                    "int",
+                ),
+                (
+                    B + f"agent_split.variants.{v}.TEST_agent_groups.AGENT-TEST.n_positive_alerts",
+                    "int",
+                ),
+                (
+                    B + f"agent_split.variants.{v}.TEST_components."
+                    "largest_component_share_of_positive_alerts",
+                    "pct2",
+                ),
+            ],
+        )
+        for label, v in (
+            ("A attempts, full membership", "A_attempts_full"),
+            ("B + unattributed any date", "B_plus_unattributed_any_date"),
+        )
+    ],
+    (
+        "{} TEST alerts ({} positives) changed group compared with v1",
+        [
+            ("p2v1_original.moved_to_other_group_in_v2.n_alerts", "int"),
+            ("p2v1_original.moved_to_other_group_in_v2.n_positive_alerts", "int"),
+        ],
+    ),
+    (
         "| C1 KYC-only | {} × prev ✗ (ceiling 2.0) | {} × prev ✓ |",
         [(KL + "C1_kyc_only.value_over_prev", "f2"), (KU + "C1_kyc_only.value_over_prev", "f2")],
     ),

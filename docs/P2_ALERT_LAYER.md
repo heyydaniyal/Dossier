@@ -139,7 +139,7 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
   - The gate value itself is unchanged, and `tests/test_p2_results_facts.py` accepts only deviations recorded with the exact measured value.
 - **Result (final build, 2026-09-30):** positive alerts TRAIN 721, VALIDATION 213, CALIBRATION 616, TEST 1,020 (AGENT-DEV 522, AGENT-TEST 498); largest TEST component 0.88% of TEST positives; regime B 869 positives. Every gate passes except the documented TRAIN deviation. The one permitted boundary adjustment was **not** used.
 - **FROZEN 2026-09-30**, after `run_p2 all --verify` printed REPRODUCED on Dani's laptop (with one note: `p2_split.yaml` changed after calibration, which was the deviation text only).
-- **Correction pending (2026-10-05):** the AGENT-DEV/AGENT-TEST numbers above come from split v1. The review found gaps in how v1 builds the graph (§7). The split is rebuilt once with v2 (`run_p2 split`); the original numbers stay in `build.feasibility_p2v1_original` and the corrected ones are added here after the run.
+- **Correction (2026-10-05, review M-6/C-2):** the AGENT-DEV/AGENT-TEST numbers above come from split v1 (original, kept in the results JSON under `p2v1_original`). The split was rebuilt once with v2 (`run_p2 split`, Dani's laptop, 2026-10-05T20:56:37Z; exposure log row 4). **Corrected (v2):** chosen variant `C_full_laundering_graph`; AGENT-DEV 418 positive alerts (11,546 alerts), AGENT-TEST 602 (11,900); largest TEST component 458 alerts, 14.80% of TEST positives. Every gate passes; no pattern attempt and no unattributed laundering link has members in both groups.
 
 ## 7. AGENT-DEV / AGENT-TEST
 
@@ -162,6 +162,20 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 - **Group key (approved by Dani 2026-10-05; second-pass review).** Moving the dev-ID file out of the runtime store is not enough: whoever holds the AGENT-DEV list (the prompt developers, by design) can, with the *public* key, compute the group each TEST account would get on its own, and an account whose real group differs must be laundering-linked (demo: precision 1.0). v2 therefore draws groups with a **secret** key (`DOSSIER_AGENT_SPLIT_KEY` in Dani's `.env`, never committed; the results JSON records only its sha256). This replaces the frozen public `hash_key` of `p2_split.yaml` for the group draw, so groups are re-drawn and a component no longer keeps its v1 group. Same `fraction_agent_test` (0.5). Dani holds the key and the AGENT-DEV list, so he could still recompute the linkage; this is acceptable only because every AGENT-TEST case is built and committed in P6 before any prompt work (holdout-rule fallback).
 - The disjointness check now runs on the full memberships and raises if any attempt, or any unattributed laundering transaction the variant links, has TEST-alerted members in both groups.
 - The AGENT-DEV id list moves to `devtools/agent_dev_alert_ids.parquet`, which runtime code cannot read (§11). The v1 assignment is kept in `archive/agent_split_p2v1.parquet`.
+
+**v2 result (run 2026-10-05T20:56:37Z; `build.agent_split` in the results JSON):**
+
+| Variant | AGENT-DEV pos. | AGENT-TEST pos. | Largest component (share of TEST pos.) | Passes gates |
+|---|---|---|---|---|
+| A attempts, full membership | 524 | 496 | 0.88% | yes |
+| B + unattributed any date | 516 | 504 | 0.98% | yes |
+| **C full laundering graph (chosen)** | **418** | **602** | **14.80%** | **yes** |
+
+- C was chosen by the pre-declared rule (the most conservative variant that passes). Joining through hubs without a TEST alert merges several networks into one component of 458 alerts holding 14.80% of TEST positives (gate ≤ 20%). That component goes wholly to one group, so the groups are unbalanced (418 vs 602 positives), both well above the 150 gate.
+- Attempt memberships touching TEST alerts: 696 in v2 vs 639 seen by v1. The 57 extra are memberships v1 could not see (gap b). Whether v1 had actually put any of them in both groups was not re-measured (it would need another TEST read).
+- Under variant A, 23 unattributed laundering links dated before TEST cross the groups (allowed for A, which links TEST-dated ones only). B and C: none.
+- Because the group key is now secret, groups were re-drawn: 11,563 TEST alerts (510 positives) changed group compared with v1. This is expected and carries no information.
+- **Input for P6:** cases in one component are correlated (one laundering network). Tier A sampling and its confidence intervals must treat the component as the cluster, and cap how many cases one component contributes, so that the large component does not dominate AGENT-TEST results.
 
 ## 8. Synthetic KYC (task 6), KYC v2
 
@@ -294,13 +308,13 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 | id | finding | status |
 |---|---|---|
 | C-1 | Identity guard gate is biased (prevalence scaling) and has no power with 28 seen positives | fixed: guard v2 approved by Dani 2026-10-05 (`configs/p3_identity_guard.yaml`, `evaluate_v2`), binding for P3–P5; v1 kept as the P2 KYC record. An independent check of v2 hardened it before first use (thin folds → insufficient_data, inputs validated, folds enforced at run time) and recorded its known limits in the config (d′ vs d′² scale; attempt-level correlation) |
-| C-2 | AGENT-DEV id list in the runtime store leaks truth | fixed: devtools store (§7, §11) + secret group key (approved 2026-10-05); takes effect with the `run_p2 split` run |
+| C-2 | AGENT-DEV id list in the runtime store leaks truth | fixed: devtools store (§7, §11) + secret group key (approved and applied 2026-10-05) |
 | M-1 | Isolation test scanned 6 packages only; dynamic imports and path reads not caught | fixed: whole repo outside eval/generators, notebooks, dynamic loading, path literals |
 | M-2 | KYC test could not detect use of post-burn-in data | fixed: perturbation test + control |
 | M-3 | Facts test never opened this doc | fixed: every measured number here is rendered from the JSON and asserted |
 | M-4 | Revision 2 used a VALIDATION aggregate | documented (§5), logged as exposure |
 | M-5 | Git cannot prove the thresholds file preceded TEST counts | documented; exposure log from now on (`docs/holdout_exposure_log.md`) |
-| M-6 | Split graph gaps (a)(b)(c) | fixed in code (§7); rebuild on real data pending (`run_p2 split`) |
+| M-6 | Split graph gaps (a)(b)(c) | fixed: rebuilt 2026-10-05 with v2, variant C chosen (§6, §7) |
 | M-7 | Disposition error model not pinned by tests | fixed: known-answer test per cell |
 | M-8 | Timezone handling untested at day boundaries | fixed: 23:59 / 00:00 / tail fixture |
 | M-9 | FX "TRAIN only" test could not detect a widened window | fixed |
