@@ -293,7 +293,7 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 
 | id | finding | status |
 |---|---|---|
-| C-1 | Identity guard gate is biased (prevalence scaling) and has no power with 28 seen positives | fixed: guard v2 approved by Dani 2026-10-05 (`configs/p3_identity_guard.yaml`, `evaluate_v2`), binding for P3–P5; v1 kept as the P2 KYC record |
+| C-1 | Identity guard gate is biased (prevalence scaling) and has no power with 28 seen positives | fixed: guard v2 approved by Dani 2026-10-05 (`configs/p3_identity_guard.yaml`, `evaluate_v2`), binding for P3–P5; v1 kept as the P2 KYC record. An independent check of v2 hardened it before first use (thin folds → insufficient_data, inputs validated, folds enforced at run time) and recorded its known limits in the config (d′ vs d′² scale; attempt-level correlation) |
 | C-2 | AGENT-DEV id list in the runtime store leaks truth | fixed: devtools store (§7, §11) + secret group key (approved 2026-10-05); takes effect with the `run_p2 split` run |
 | M-1 | Isolation test scanned 6 packages only; dynamic imports and path reads not caught | fixed: whole repo outside eval/generators, notebooks, dynamic loading, path literals |
 | M-2 | KYC test could not detect use of post-burn-in data | fixed: perturbation test + control |

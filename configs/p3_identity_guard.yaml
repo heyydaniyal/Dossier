@@ -45,11 +45,21 @@ thresholds:
   n_min_pos_seen: 30          # pooled positives over folds; fewer -> insufficient_data
   n_min_pos_unseen: 30
   ratio: 0.5                  # recognition if unseen gain is credibly below 0.5 x seen gain
-  seen_base_auc_max: 0.995    # seen base AUC at/above this -> d' unstable -> insufficient_data
+  base_auc_max: 0.995         # a fold x subset whose base AUC is at/above this is dropped (d'
+                              # is unstable there); applies to seen and unseen
+# Robustness rules (clarified 2026-10-05 after an independent check, BEFORE first use; they make
+# thin data end as insufficient_data instead of crashing, and never loosen a verdict):
+#  - a fold x subset with only one class, or with base AUC >= base_auc_max, is dropped and listed
+#    (per_fold[].dropped); dropped folds' positives do not count toward n_min;
+#  - in a bootstrap replicate where a fold x subset has no resampled positive or negative, the
+#    pooled gain uses the other folds; if > 1% of replicates are still undefined ->
+#    insufficient_data;
+#  - inputs are validated: folds by name and order, every row from the fold's eval day, finite
+#    scores, 0/1 labels, one row per account; the config must equal this file (else refused).
 
 # Verdicts, evaluated in this order; the first that matches wins.
 verdicts:
-  insufficient_data:   {cleared: false, rule: "pooled positives below n_min in a subset, or seen base AUC >= seen_base_auc_max"}
+  insufficient_data:   {cleared: false, rule: "usable pooled positives below n_min in a subset, or > 1% undefined bootstrap replicates"}
   harms_unseen:        {cleared: false, rule: "CI upper of unseen gain < 0"}
   account_recognition: {cleared: false, rule: "CI lower of seen gain > 0 AND CI upper of (unseen gain - ratio x seen gain) < 0"}
   pass:                {cleared: true,  rule: "CI lower of unseen gain > 0"}
@@ -58,6 +68,15 @@ verdicts:
 # "cleared" means only that the guard does not object; whether a group is adopted is still
 # decided by time-series CV PR-AUC (P4).
 
+# Known limits (independent check 2026-10-05):
+#  - The d' scale assumes the group shifts separation additively. If its signal is independent
+#    of the base score, d'^2 adds instead, a high seen base level squeezes the seen gain, and the
+#    effective ratio is looser than 0.5 (simulation: pure recognition of +0.8 caught 55%; partial
+#    recognition at 0.4x passes). The d'^2 contrast is reported (report_only_dprime_squared) so
+#    disagreements are visible; it does not decide.
+#  - Resampling accounts ignores that one laundering attempt spans several accounts (CIs somewhat
+#    too narrow), and an unseen account can share an attempt with a seen one: the guard detects
+#    recognition of the ACCOUNT, not of the pattern or counterparty.
 # Evidence (simulation at the real subset sizes, 1,000 replicates, B=400; review 2026-10-05):
 # no effect -> ~94% cleared; equal real effect -> pass 99.8-100%; seen-only +0.5 SD -> recognition
 # 97-99% with folds; harms unseen -> harms_unseen 100%. Known limit: recognition of only a
