@@ -159,8 +159,8 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 - Memberships come from the whole raw file: the patterns file for attempts (every date, tail included) and every laundering transaction in no pattern.
 - Three graphs: **A** = v1 done correctly (fixes b); **B** = A + unattributed links of any date (fixes b, c); **C** = every laundering-linked account is a node, so hubs without a TEST alert still join their partners (fixes a, b, c).
 - Selection rule, declared before the run: take the first of C, B, A whose largest component holds ≤ 20% of TEST positives and whose groups each hold ≥ 150 positives. If none passes, nothing is written and the run stops for Dani.
-- Same hash key and fraction as v1, so a component with the same members keeps its v1 group.
-- The disjointness check now runs on the full memberships and raises if any attempt has TEST-alerted members in both groups.
+- **Group key (needs Dani's decision; second-pass review, 2026-10-05).** Moving the dev-ID file out of the runtime store is not enough: whoever holds the AGENT-DEV list (the prompt developers, by design) can, with the *public* key, compute the group each TEST account would get on its own, and an account whose real group differs must be laundering-linked (demo: precision 1.0). v2 therefore draws groups with a **secret** key (`DOSSIER_AGENT_SPLIT_KEY` in Dani's `.env`, never committed; the results JSON records only its sha256). This replaces the frozen public `hash_key` of `p2_split.yaml` for the group draw, so groups are re-drawn and a component no longer keeps its v1 group. If Dani declines, `group_key.source: p2_split_public` restores v1 behaviour and C-2 stays only partly fixed. Same `fraction_agent_test` (0.5) either way.
+- The disjointness check now runs on the full memberships and raises if any attempt, or any unattributed laundering transaction the variant links, has TEST-alerted members in both groups.
 - The AGENT-DEV id list moves to `devtools/agent_dev_alert_ids.parquet`, which runtime code cannot read (§11). The v1 assignment is kept in `archive/agent_split_p2v1.parquet`.
 
 ## 8. Synthetic KYC (task 6), KYC v2
@@ -274,6 +274,8 @@ Runtime code reaches these only through `src/data/stores.py` (allow-list; refuse
 **Devtools side** (`…/devtools/`, P6/P8 development tooling only; never the runtime):
 - `agent_dev_alert_ids.parquet`
 
+**Archive** (`…/archive/`, record only): `agent_split_p2v1.parquet` (the original P2 split). The original P2 feasibility counts, run info, config hashes and store fingerprints are kept in the results JSON under `p2v1_original`, which every later run carries forward.
+
 **Evaluation side** (`…/eval/`):
 - `alert_labels.parquet`
 - `positive_account_days.parquet`
@@ -292,13 +294,13 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 | id | finding | status |
 |---|---|---|
 | C-1 | Identity guard gate is biased (prevalence scaling) and has no power with 28 seen positives | v2 rule proposed; awaiting Dani's approval (thresholds are frozen) |
-| C-2 | AGENT-DEV id list in the runtime store leaks truth | fixed: moved to devtools store (§7, §11) |
+| C-2 | AGENT-DEV id list in the runtime store leaks truth | moved to devtools store (§7, §11); fully closed only with the secret group key (§7), which needs Dani's decision |
 | M-1 | Isolation test scanned 6 packages only; dynamic imports and path reads not caught | fixed: whole repo outside eval/generators, notebooks, dynamic loading, path literals |
 | M-2 | KYC test could not detect use of post-burn-in data | fixed: perturbation test + control |
 | M-3 | Facts test never opened this doc | fixed: every measured number here is rendered from the JSON and asserted |
 | M-4 | Revision 2 used a VALIDATION aggregate | documented (§5), logged as exposure |
 | M-5 | Git cannot prove the thresholds file preceded TEST counts | documented; exposure log from now on (`docs/holdout_exposure_log.md`) |
-| M-6 | Split graph gaps (a)(b)(c) | fixed in code (§7); rebuild on real data pending |
+| M-6 | Split graph gaps (a)(b)(c) | fixed in code (§7); rebuild on real data pending (`run_p2 split`) |
 | M-7 | Disposition error model not pinned by tests | fixed: known-answer test per cell |
 | M-8 | Timezone handling untested at day boundaries | fixed: 23:59 / 00:00 / tail fixture |
 | M-9 | FX "TRAIN only" test could not detect a widened window | fixed |
@@ -311,11 +313,15 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 | m-9 | Stale caches reused without a check | fixed: semantic cache key; mismatch stops the run |
 | m-10 | Stores sorted by account_key / row_id | P3 rule: never `head()`, slice or split a store unshuffled; order by keyed hash first |
 
-**FX residual (m-1).** The 0.0125 maximum comes from fiat → Bitcoin pairs whose received BTC amount is coarsely rounded (worst: Euro → Bitcoin, median rate exactly 1.0e-4). The largest non-Bitcoin residual is about 3e-4. Effect: the fitted Bitcoin rate is about 0.125% below the direct rate. This is immaterial for the USD rule floors and R07, and the table is frozen, so it is documented, not re-fitted. Diagnosed from P1's committed pre-holdout aggregates; the TRAIN-only confirmation is `fx_residual_diagnostic.py` (owner run pending).
+**Second pass (2026-10-05).** A second reviewer, fresh, checked the fixes above and found: the public key still leaks linkage to the dev role (→ secret key, §7); `build --verify` compared keys a build never writes (fixed: a build verify compares only `build`, `split`, `configs_sha256` and positive account-days; tested on the fixture for `build` and `all`); realistic gaps and false alarms in the isolation scan (fixed: glob/wildcard reads, raw CSV, archive, variable interim kinds, `importlib`, notebook magics; no longer blocks `typology` names, model `'eval'` set names or two-line `scan_transactions` calls); minor items (original P2 run info kept, split-stage input fingerprints checked, per-variant unattributed check, incomplete-cache marker, contracts key normalisation, review scripts committed). All are covered by tests.
+
+The TRAIN/VALIDATION-only diagnostic scripts of the review are in `scripts/p2/review/` (run from the repo root; each refuses to load a row from 2022-09-08 or later): `label_generosity_train_val.py`, `fx_residual_diagnostic.py`, `bank_padding_diagnostic.py`, `rb_check_train_val.py`, `fold_counts_train_val.py`.
+
+**FX residual (m-1).** The 0.0125 maximum comes from fiat → Bitcoin pairs whose received BTC amount is coarsely rounded (worst: Euro → Bitcoin, median rate exactly 1.0e-4). The largest non-Bitcoin residual is about 3e-4. Effect: the fitted Bitcoin rate is about 0.125% below the direct rate. This is immaterial for the USD rule floors and R07, and the table is frozen, so it is documented, not re-fitted. Diagnosed from P1's committed pre-holdout aggregates; the TRAIN-only confirmation is `scripts/p2/review/fx_residual_diagnostic.py` (owner run pending).
 
 **Bank IDs with two zero-paddings (P1 open item).** The P1 audit has the same number of (bank, account) keys before and after stripping zeros (2,077,023), so the 61 bank IDs share no account number: no account is split into two keys, and there is no effect on alerts, fan-in counts, KYC or the agent split. It matters only for future bank-level features.
 
-**Still open:** label generosity (an alert is true if the account touched any laundering that day, even if the fired rule's statistic is unrelated) is measured by `label_generosity_train_val.py` (owner run pending, TRAIN/VALIDATION only).
+**Still open:** label generosity (an alert is true if the account touched any laundering that day, even if the fired rule's statistic is unrelated) is measured by `scripts/p2/review/label_generosity_train_val.py` (owner run pending, TRAIN/VALIDATION only).
 
 ## 13. Measured summary (final build, asserted by `tests/test_p2_results_facts.py`)
 

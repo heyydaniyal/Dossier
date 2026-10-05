@@ -133,3 +133,16 @@ def test_models_are_immutable():
     a = _alert()
     with pytest.raises(ValidationError):
         a.alert_id = "B"
+
+
+def test_forbidden_fields_v1_1_normalised_and_widened():
+    from src.contracts.models import find_forbidden_fields
+
+    payload = {
+        "ok": 1,
+        "Is Laundering": 1,
+        "nested": [{"attempt_ids": [3]}, {"has-unattributed": True}],
+        "typology": "FAN-IN",  # allowed: the Typology agent's own reasoning
+    }
+    hits = find_forbidden_fields(payload)
+    assert sorted(hits) == ["Is Laundering", "nested[0].attempt_ids", "nested[1].has-unattributed"]

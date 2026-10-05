@@ -78,7 +78,8 @@ def find_forbidden_fields(obj: Any, path: str = "") -> list[str]:
     if isinstance(obj, dict):
         for k, v in obj.items():
             p = f"{path}.{k}" if path else str(k)
-            if str(k).lower() in FORBIDDEN_FIELDS:
+            # v1.1.0: "Is Laundering", "is-laundering", " IS_LAUNDERING " all match
+            if str(k).strip().lower().replace(" ", "_").replace("-", "_") in FORBIDDEN_FIELDS:
                 hits.append(p)
             hits.extend(find_forbidden_fields(v, p))
     elif isinstance(obj, list | tuple):

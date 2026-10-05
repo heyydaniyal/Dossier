@@ -36,7 +36,15 @@ def _run_fixture_pipeline(root: Path) -> dict:
     scfg["feasibility"]["max_share_of_test_positives_in_one_component"] = 1.0
     split_path = root / "split.yaml"
     split_path.write_text(yaml.safe_dump(scfg, sort_keys=False), encoding="utf-8")
-    cp = run_p2.ConfigPaths(rules=rules_path, sources=info["sources"], split=split_path)
+    # The fixture uses the public v1 key for the group draw (the real config reads a secret key
+    # from Dani's .env); the secret-key path is unit-tested in tests/test_p3_agent_split_v2.py.
+    v2 = yaml.safe_load((ROOT / "configs" / "p2_agent_split_v2.yaml").read_text(encoding="utf-8"))
+    v2["group_key"] = {"source": "p2_split_public"}
+    v2_path = root / "agent_split_v2.yaml"
+    v2_path.write_text(yaml.safe_dump(v2, sort_keys=False), encoding="utf-8")
+    cp = run_p2.ConfigPaths(
+        rules=rules_path, sources=info["sources"], split=split_path, agent_split_v2=v2_path
+    )
     cdir = root / "configs"
     cdir.mkdir()
     doc = run_p2.run(

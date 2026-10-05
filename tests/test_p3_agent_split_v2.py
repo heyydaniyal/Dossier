@@ -11,6 +11,7 @@ the parsers that read the raw patterns and transactions.
 
 from __future__ import annotations
 
+import json
 import random
 from datetime import UTC, datetime
 
@@ -172,6 +173,50 @@ def test_config_is_declared_and_keeps_the_frozen_key_and_fraction():
     assert set(cfg["variants"]) == set(gs.VARIANTS)
     assert cfg["outputs"]["devtools_dev_ids"].startswith("devtools/")
     assert cfg["outputs"]["removed_from_runtime"].startswith("runtime/")
+    assert cfg["group_key"] == {"source": "env", "env_var": "DOSSIER_AGENT_SPLIT_KEY"}
+
+
+def test_group_key_is_secret_and_only_its_hash_is_recorded(monkeypatch, tmp_path):
+    from scripts.p2 import run_p2
+    from src.data.periods import load_split
+
+    cfg = yaml.safe_load(SPLIT_V2_CONFIG.read_text(encoding="utf-8"))
+    split = load_split()
+    monkeypatch.delenv("DOSSIER_AGENT_SPLIT_KEY", raising=False)
+    monkeypatch.setattr(run_p2, "ROOT", tmp_path)  # no .env there
+    with pytest.raises(RuntimeError, match="DOSSIER_AGENT_SPLIT_KEY"):
+        run_p2.agent_split_key(cfg, split)
+    monkeypatch.setenv("DOSSIER_AGENT_SPLIT_KEY", "short")
+    with pytest.raises(RuntimeError):
+        run_p2.agent_split_key(cfg, split)
+    secret = "f" * 64
+    monkeypatch.setenv("DOSSIER_AGENT_SPLIT_KEY", secret)
+    key, rec = run_p2.agent_split_key(cfg, split)
+    assert key == secret and rec["source"] == "env" and secret not in json.dumps(rec)
+    monkeypatch.delenv("DOSSIER_AGENT_SPLIT_KEY")
+    (tmp_path / ".env").write_text(f"OTHER=1\nDOSSIER_AGENT_SPLIT_KEY={secret}\n", "utf-8")
+    assert run_p2.agent_split_key(cfg, split)[0] == secret  # read from .env as well
+
+
+def test_public_key_leaks_linkage_and_secret_key_does_not():
+    """Why the key must be secret: with the public key, an account whose group differs from its
+    singleton group is provably in a multi-account (laundering-linked) component."""
+    keys = [f"001|K{i}" for i in range(400)]
+    att = att_df([(i // 4, k) for i, k in enumerate(keys[:200])])  # 50 attempts x 4 accounts
+    al = alerts_df(keys)
+
+    def exposed(split_key, guess_key):
+        m = gs.memberships(C, att, EMPTY_UN, set(keys), T0, T1)
+        s = gs.split_v2(al, m, split_key, 0.5)
+        single = gs.split_v2(al, m.clear(), guess_key, 0.5)  # what each would get alone
+        g, g1 = groups(s), groups(single)
+        return {k for k in keys if g[k] != g1[k]}
+
+    pub = exposed("dossier-p2-agent-split-v1", "dossier-p2-agent-split-v1")
+    assert pub and pub <= set(keys[:200])  # every exposed account is linked: precision 1.0
+    sec = exposed("s" * 64, "dossier-p2-agent-split-v1")  # attacker only knows the public key
+    linked = len(sec & set(keys[:200])) / len(sec)
+    assert 0.3 < linked < 0.7  # ~ base rate 0.5: no information
 
 
 # ---------------------------------------------------------------- properties on random graphs
@@ -282,7 +327,9 @@ def test_split_stage_rebuilds_on_a_p2v1_build(p2_run, tmp_path):
     )
     shutil.rmtree(base / "devtools")
     doc = json.loads(json.dumps(p2_run["doc"]))
-    doc["build"].pop("agent_split")
+    doc["build"].pop("agent_split")  # the P2 v1 results JSON has no agent_split block
+    doc["build"]["feasibility"]["counts"].pop("TEST_components_disjointness")
+    doc["stores"].pop("devtools/agent_dev_alert_ids.parquet")
     (dst / "results.json").write_text(json.dumps(doc), encoding="utf-8")
     untouched = {
         p: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -308,9 +355,12 @@ def test_split_stage_rebuilds_on_a_p2v1_build(p2_run, tmp_path):
     new = pl.read_parquet(base / "eval" / "agent_split.parquet")
     assert set(new["alert_id"]) == set(a["alert_id"])
     b = out["build"]
-    assert b["feasibility_p2v1_original"] == json.loads(json.dumps(old_feas))
+    orig = out["p2v1_original"]
+    assert orig["feasibility"] == json.loads(json.dumps(old_feas))
+    assert orig["run_info"] == json.loads(json.dumps(p2_run["doc"]["run_info"]))
+    assert "moved_to_other_group_in_v2" in orig
     assert b["agent_split"]["chosen_variant"] == C
-    assert "moved_vs_p2v1" in b["agent_split"]
+    assert "archive/agent_split_p2v1.parquet" in out["stores"]
     assert "devtools/agent_dev_alert_ids.parquet" in out["stores"]
     assert "runtime/agent_dev_alert_ids.parquet" not in out["stores"]
     for p, h in untouched.items():
@@ -329,7 +379,12 @@ def test_split_stage_stops_and_keeps_diagnostics_when_no_variant_passes(p2_run, 
     (dst / "results.json").write_text(json.dumps(p2_run["doc"]), encoding="utf-8")
     strict = tmp_path / "split.yaml"  # the REAL gates: the fixture cannot pass them
     shutil.copyfile(SPLIT_V2_CONFIG.parent / "p2_split.yaml", strict)
-    cp = run_p2.ConfigPaths(rules=p2_run["cp"].rules, sources=p2_run["cp"].sources, split=strict)
+    cp = run_p2.ConfigPaths(
+        rules=p2_run["cp"].rules,
+        sources=p2_run["cp"].sources,
+        split=strict,
+        agent_split_v2=p2_run["cp"].agent_split_v2,
+    )
     before = (dst / "out" / "FIX" / "eval" / "agent_split.parquet").read_bytes()
     with pytest.raises(run_p2.SplitSelectionError):
         run_p2.run(
@@ -339,3 +394,66 @@ def test_split_stage_stops_and_keeps_diagnostics_when_no_variant_passes(p2_run, 
     rep = json.loads((dst / "p2_agent_split_v2_no_variant_passed.json").read_text("utf-8"))
     assert rep["chosen_variant"] is None and set(rep["variants"]) == set(gs.VARIANTS)
     assert (dst / "out" / "FIX" / "eval" / "agent_split.parquet").read_bytes() == before
+
+
+def test_variant_a_equals_v1_when_no_member_is_outside_the_cut_legs():
+    """Second-pass review: A must reproduce v1 exactly whenever the full memberships coincide with
+    v1's in-span legs (no tail-only members)."""
+    rnd = random.Random(7)
+    for trial in range(200):
+        n = rnd.randint(2, 30)
+        keys = [f"{rnd.randint(0, 9):03d}|K{i}" for i in range(n)]
+        alerted = rnd.sample(keys, rnd.randint(1, n))
+        rows, rid = [], 0
+        for a in range(rnd.randint(0, 8)):
+            for m in rnd.sample(keys, rnd.randint(1, min(4, n))):
+                rid += 1
+                rows.append((m, rid, a, D(rnd.choice([3, 9, 13, 15]))))
+        for _ in range(rnd.randint(0, 6)):
+            x, y = rnd.sample(keys, 2)
+            rid += 1
+            ts = D(rnd.choice([9, 13, 15]))
+            rows += [(x, rid, None, ts), (y, rid, None, ts)]
+        legs = pl.DataFrame(
+            {
+                "account_key": [r[0] for r in rows],
+                "window_start": [r[3] for r in rows],
+                "row_id": [r[1] for r in rows],
+                "attempt_id": [r[2] for r in rows],
+                "typology": [None] * len(rows),
+                "timestamp": [r[3] for r in rows],
+            },
+            schema={
+                "account_key": pl.String,
+                "window_start": pl.Datetime("us", "UTC"),
+                "row_id": pl.Int64,
+                "attempt_id": pl.Int32,
+                "typology": pl.String,
+                "timestamp": pl.Datetime("us", "UTC"),
+            },
+        )
+        att = att_df([(r[2], r[0]) for r in rows if r[2] is not None]) if rows else EMPTY_ATT
+        un = un_df([(r[1], r[0], r[3]) for r in rows if r[2] is None]) if rows else EMPTY_UN
+        al = alerts_df(alerted)
+        f = rnd.random()
+        v1 = gs.split_test_alerts(al, legs, T0, T1, "k", f)
+        assert split(A, al, att, un, f).equals(v1), trial
+
+
+def test_disjointness_check_raises_on_a_linked_unattributed_txn_in_both_groups():
+    s = pl.DataFrame(
+        {
+            "alert_id": ["a_x", "a_z"],
+            "account_key": ["x", "z"],
+            "agent_group": [gs.AGENT_DEV, gs.AGENT_TEST],
+            "component": ["1", "2"],
+        }
+    )
+    pre = un_df([(5, "x", D(11)), (5, "z", D(11))])  # CALIBRATION-dated link
+    gs.check_disjoint_v2(s, EMPTY_ATT, pre, A, T0, T1)  # A does not link pre-TEST: allowed
+    for v in (B, C):
+        with pytest.raises(AssertionError, match="unattributed"):
+            gs.check_disjoint_v2(s, EMPTY_ATT, pre, v, T0, T1)
+    intest = un_df([(6, "x", D(14)), (6, "z", D(14))])
+    with pytest.raises(AssertionError, match="unattributed"):
+        gs.check_disjoint_v2(s, EMPTY_ATT, intest, A, T0, T1)

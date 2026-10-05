@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import shutil
 import sys
@@ -113,7 +114,13 @@ class Paths:
         return self.stats_dir / f"{ws.date().isoformat()}.parquet"
 
 
-def cache_key(split: Split, rcfg: dict, fx_path: Path, sources: Path, variant: str) -> str:
+CACHE_CODE = ("src/alerts/rules.py", "src/data/fx.py", "src/data/accounts.py",
+              "src/data/transactions.py", "src/data/periods.py")  # fmt: skip
+
+
+def cache_key(
+    split: Split, rcfg: dict, fx_path: Path, sources: Path, variant: str, kcfg: dict
+) -> str:
     """Semantic hash of everything the cached statistics depend on (review m-9): rule parameters,
     the FX table, the windows, and the frozen input fingerprint. Documentation-only edits to a
     config do not change it; any change that alters a statistic does."""
@@ -125,6 +132,8 @@ def cache_key(split: Split, rcfg: dict, fx_path: Path, sources: Path, variant: s
         "burn_in": [t.isoformat() for t in split.burn_in],
         "periods": {k: [a.isoformat(), b.isoformat()] for k, (a, b) in split.periods.items()},
         "inputs": {k: v["sha256"] for k, v in sorted(src.items()) if k.startswith(variant + "_")},
+        "bank_parsing": [kcfg["foreign_countries"], kcfg["crypto_prefixes"]],
+        "code": {c: sha256(ROOT / c) for c in CACHE_CODE},
     }
     return hashlib.sha256(json.dumps(basis, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -134,13 +143,21 @@ class StaleCacheError(RuntimeError):
 
 
 def check_cache(P: Paths, key: str) -> str:
-    """'match' | 'created' (cache predates the manifest: recorded, reported) | raises if stale."""
+    """'match' | 'absent' | 'created' (a cache from before the manifest existed: adopted and
+    REPORTED in the results JSON) | raises if stale or incomplete."""
     if not P.cache_manifest.is_file():
         if P.stats_dir.is_dir() or P.burn_in.is_file():
-            write_text_lf(P.cache_manifest, json.dumps({"cache_key": key}) + "\n")
+            write_text_lf(P.cache_manifest, json.dumps({"cache_key": key, "complete": True}) + "\n")
+            print("  note: cached statistics predate the cache manifest; adopted as current")
             return "created"
         return "absent"
-    have = json.loads(P.cache_manifest.read_text(encoding="utf-8"))["cache_key"]
+    m = json.loads(P.cache_manifest.read_text(encoding="utf-8"))
+    if not m.get("complete", False):
+        raise StaleCacheError(
+            f"cached statistics in {P.work} are incomplete (an earlier run stopped). "
+            "Delete that folder and re-run the stage."
+        )
+    have = m["cache_key"]
     if have != key:
         raise StaleCacheError(
             f"cached statistics in {P.work} were built from different rules/FX/split/inputs "
@@ -184,6 +201,9 @@ def stage_stats(
     usd = fxmod.load(P.fx)
     tu = fxmod.with_usd(trans, usd)
 
+    key = cache_key(split, rcfg, P.fx, sources, variant, kcfg)
+    P.work.mkdir(parents=True, exist_ok=True)
+    write_text_lf(P.cache_manifest, json.dumps({"cache_key": key, "complete": False}) + "\n")
     _step("account keys in the usable span")
     s0, s1 = split.span
     inspan = trans.filter((pl.col("timestamp") >= s0) & (pl.col("timestamp") < s1))
@@ -224,10 +244,7 @@ def stage_stats(
         n_active[ws.date().isoformat()] = st.height
     info["n_active_account_days"] = n_active
     info["n_accounts_in_span"] = keys.height
-    write_text_lf(
-        P.cache_manifest,
-        json.dumps({"cache_key": cache_key(split, rcfg, P.fx, sources, variant)}) + "\n",
-    )
+    write_text_lf(P.cache_manifest, json.dumps({"cache_key": key, "complete": True}) + "\n")
     loc = (
         attrs.group_by("bank_location", "bank_country")
         .len()
@@ -483,6 +500,40 @@ def _variant_passes(c: dict, fz: dict) -> bool:
     )
 
 
+def _dotenv(path: Path) -> dict[str, str]:
+    """Minimal .env reader (KEY=VALUE lines); the file is gitignored and never committed."""
+    if not path.is_file():
+        return {}
+    out = {}
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        ln = ln.strip()
+        if ln and not ln.startswith("#") and "=" in ln:
+            k, v = ln.split("=", 1)
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def agent_split_key(svcfg: dict, split: Split) -> tuple[str, dict]:
+    """The key for the group draw and a public record of it (source + sha256, never the key)."""
+    gk = svcfg["group_key"]
+    if gk["source"] == "p2_split_public":
+        key = split.raw["agent_split"]["hash_key"]
+    elif gk["source"] == "env":
+        var = gk["env_var"]
+        key = os.environ.get(var) or _dotenv(ROOT / ".env").get(var, "")
+        if len(key) < 32:
+            raise RuntimeError(
+                f"{var} is not set (or shorter than 32 characters) in the environment or .env. "
+                'Generate one: uv run python -c "import secrets; print(secrets.token_hex(32))"'
+            )
+    else:
+        raise RuntimeError(f"unknown group_key source {gk['source']!r}")
+    return key, {
+        "source": gk["source"],
+        "sha256": hashlib.sha256(key.encode("utf-8")).hexdigest(),
+    }
+
+
 def choose_variant(order: list[str], passes: dict[str, bool]) -> str | None:
     """Pre-declared rule: the first variant in preference order that passes the gates."""
     if sorted(order) != sorted(gs.VARIANTS) or sorted(passes) != sorted(gs.VARIANTS):
@@ -501,15 +552,16 @@ def agent_split_block(
         interim_path(interim, variant, "trans"), interim_path(interim, variant, "patterns")
     )
     scfg, fz = split.raw["agent_split"], split.raw["feasibility"]
+    key, key_record = agent_split_key(svcfg, split)
     ts0, ts1 = split.periods["TEST"]
     accounts = set(t_pos["account_key"].to_list())
     alerts = t_pos.select("alert_id", "account_key")
     results: dict[str, tuple[pl.DataFrame, dict]] = {}
     for v in gs.VARIANTS:
         m = gs.memberships(v, att, unatt, accounts, ts0, ts1)
-        a = gs.split_v2(alerts, m, scfg["hash_key"], scfg["fraction_agent_test"])
+        a = gs.split_v2(alerts, m, key, scfg["fraction_agent_test"])
         c = _group_counts(a, t_pos)
-        c["disjointness_on_full_memberships"] = gs.check_disjoint_v2(a, att, unatt)
+        c["disjointness_on_full_memberships"] = gs.check_disjoint_v2(a, att, unatt, v, ts0, ts1)
         c["passes_gates"] = _variant_passes(c, fz)
         results[v] = (a, c)
     order = svcfg["preference_order"]
@@ -517,6 +569,7 @@ def agent_split_block(
     report = {
         "version": svcfg["version"],
         "config_sha256": svcfg["_sha256"],
+        "group_key": key_record,
         "preference_order": order,
         "variants": {v: results[v][1] for v in gs.VARIANTS},
         "chosen_variant": chosen,
@@ -580,6 +633,11 @@ def stage_split(variant: str, interim: Path, P: Paths, split: Split, svcfg: dict
     if "build" not in doc or "feasibility" not in doc["build"]:
         raise RuntimeError("`split` needs an existing build in the results JSON")
     verify_interim(interim, variant, cp.sources)
+    # the stores the split reads must be the ones the results JSON describes
+    disk = store_fingerprints(P)
+    for k in ("runtime/alerts.parquet", "eval/alert_labels.parquet"):
+        if doc.get("stores", {}).get(k, {}).get("sha256") != disk.get(k, {}).get("sha256"):
+            raise RuntimeError(f"{k} on disk does not match the results JSON fingerprint")
     alerts = pl.scan_parquet(P.alerts).filter(pl.col("period") == "TEST")
     lab = pl.scan_parquet(P.labels).select("alert_id", "is_true_positive")
     t_pos = alerts.select("alert_id", "account_key").join(lab, on="alert_id").collect()
@@ -589,8 +647,17 @@ def stage_split(variant: str, interim: Path, P: Paths, split: Split, svcfg: dict
     if P.split.is_file() and not P.archive_v1.is_file():  # keep the original P2 assignment
         P.archive_v1.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(P.split, P.archive_v1)
-    if "feasibility_p2v1_original" not in b:
-        b["feasibility_p2v1_original"] = json.loads(json.dumps(b["feasibility"]))
+    if "p2v1_original" not in doc:  # the P2 record, carried forward by every later run
+        doc["p2v1_original"] = json.loads(
+            json.dumps(
+                {
+                    "feasibility": b["feasibility"],
+                    "run_info": doc.get("run_info"),
+                    "configs_sha256": doc.get("configs_sha256"),
+                    "stores": doc.get("stores"),
+                }
+            )
+        )
     if P.archive_v1.is_file():
         old = pl.read_parquet(P.archive_v1).select("alert_id", pl.col("agent_group").alias("g1"))
         moved = old.join(assign.select("alert_id", "agent_group"), on="alert_id")
@@ -599,7 +666,7 @@ def stage_split(variant: str, interim: Path, P: Paths, split: Split, svcfg: dict
         mv = moved.filter(pl.col("g1") != pl.col("agent_group")).join(
             t_pos.select("alert_id", "is_true_positive"), on="alert_id"
         )
-        sinfo["report"]["moved_vs_p2v1"] = {
+        doc["p2v1_original"]["moved_to_other_group_in_v2"] = {
             "n_alerts": mv.height,
             "n_positive_alerts": int(mv["is_true_positive"].sum()),
         }
@@ -711,7 +778,6 @@ def stage_kyc(
     semi-joined lazily, so no TEST row is ever materialised (polars may still scan the file blocks
     that hold TEST rows; review m-9). KYC itself reads only the burn-in day's statistics."""
     need = {"account_key", *rules.ALL_STATS}
-    check_cache(P, cache_key(split, rcfg, P.fx, cp.sources, variant))
     if not P.burn_in.is_file() or not need <= set(pl.read_parquet_schema(P.burn_in).names()):
         verify_interim(interim, variant, cp.sources)
         tu = fxmod.with_usd(
@@ -733,7 +799,12 @@ def stage_kyc(
 
 def store_fingerprints(P: Paths) -> dict:
     files = sorted(
-        [*P.runtime.glob("*.parquet"), *P.eval.glob("*.parquet"), *P.devtools.glob("*.parquet")]
+        [
+            *P.runtime.glob("*.parquet"),
+            *P.eval.glob("*.parquet"),
+            *P.devtools.glob("*.parquet"),
+            *P.archive_v1.parent.glob("*.parquet"),
+        ]
     )
     return {
         f"{f.parent.name}/{f.name}": {
@@ -799,6 +870,7 @@ def run(
         }
         doc["calibration"] = stage_calibrate(P, split, rcfg, pos, cp)
     if stage == "kyc":
+        doc["cache_check"] = check_cache(P, cache_key(split, rcfg, P.fx, cp.sources, variant, kcfg))
         doc.setdefault("build", {})["kyc"] = stage_kyc(variant, interim, P, split, rcfg, kcfg, cp)
         fps = store_fingerprints(P)
         doc.setdefault("stores", {})
@@ -814,7 +886,7 @@ def run(
             raise
         doc["stores"] = store_fingerprints(P)
     if stage in ("build", "all"):
-        check_cache(P, cache_key(split, rcfg, P.fx, cp.sources, variant))
+        doc["cache_check"] = check_cache(P, cache_key(split, rcfg, P.fx, cp.sources, variant, kcfg))
         if not P.stats_dir.is_dir():
             doc["stats"] = stage_stats(variant, interim, P, split, rcfg, kcfg, False, cp.sources)
         pos = (
@@ -875,11 +947,13 @@ def compare_runs(a: Path, b: Path) -> list[str]:
 RESULTS_IGNORED = (
     "run_info",
     "stores",
-    "build.feasibility_p2v1_original",
-    "build.agent_split.moved_vs_p2v1",
+    "cache_check",
+    "p2v1_original",
     "build.thresholds_sha256_before_any_test_count",
     "configs_sha256.p2_rule_thresholds.yaml",
 )
+# what a `build` run produces (a `build --verify` compares only these; `all` compares everything)
+BUILD_RESULT_KEYS = ("build", "positive_account_days_per_period", "split", "configs_sha256")
 
 
 def _flatten(o, prefix: str = "") -> dict:
@@ -891,13 +965,19 @@ def _flatten(o, prefix: str = "") -> dict:
     return {prefix: o}
 
 
-def compare_results(committed: dict, regenerated: dict) -> list[str]:
+def compare_results(
+    committed: dict, regenerated: dict, scope: tuple[str, ...] | None = None
+) -> list[str]:
     """Review m-6: --verify also compares every value of the results JSON (KYC leakage,
-    dispositions audit, rule metrics, feasibility, agent split), not only the data files."""
+    dispositions audit, rule metrics, feasibility, agent split), not only the data files.
+    scope: only keys under these prefixes (a `build` run does not produce calibration/stats)."""
     a, b = _flatten(committed), _flatten(regenerated)
 
+    def under(k: str, prefixes) -> bool:
+        return any(k == i or k.startswith(i + ".") for i in prefixes)
+
     def keep(k: str) -> bool:
-        return not any(k == i or k.startswith(i + ".") for i in RESULTS_IGNORED)
+        return not under(k, RESULTS_IGNORED) and (scope is None or under(k, scope))
 
     return [
         f"results JSON '{k}': committed {a.get(k)!r} != regenerated {b.get(k)!r}"
@@ -941,6 +1021,53 @@ def compare_thresholds(original: Path, regenerated: Path) -> tuple[list[str], li
     return diffs, notes
 
 
+def verify(
+    stage: str,
+    variant: str,
+    interim: Path,
+    out_root: Path,
+    configs_dir: Path,
+    results: Path,
+    seed: int,
+    vroot: Path,
+    cp: ConfigPaths | None = None,
+    primary: str = PRIMARY,
+) -> tuple[list[str], list[str]]:
+    """Regenerate `stage` (build | all) under vroot and compare with the committed outputs:
+    data stores byte for byte, FX table, thresholds (calibrated content), the results JSON value
+    by value (only the parts the stage produces), and the committed store fingerprints."""
+    vcfg = vroot / "configs"
+    if vroot.exists():
+        shutil.rmtree(vroot)
+    vcfg.mkdir(parents=True)
+    if stage == "build":  # build reuses the committed TRAIN outputs; `all` regenerates them
+        for f in ("p2_fx_usd_per_unit.yaml", "p2_rule_thresholds.yaml"):
+            if (configs_dir / f).is_file():
+                shutil.copy(configs_dir / f, vcfg / f)
+    vres = vroot / "p2_results.verify.json"
+    run(stage, variant, interim, vroot, vcfg, vres, seed, cp=cp, primary=primary)
+    diffs: list[str] = []
+    for d in ("runtime", "eval", "devtools"):
+        diffs += compare_runs(out_root / variant / d, vroot / variant / d)
+    f = "p2_fx_usd_per_unit.yaml"
+    if (vcfg / f).is_file() and sha256(vcfg / f) != sha256(configs_dir / f):
+        diffs.append(f"configs/{f}: bytes differ")
+    notes: list[str] = []
+    f = "p2_rule_thresholds.yaml"
+    if (vcfg / f).is_file():
+        d, notes = compare_thresholds(configs_dir / f, vcfg / f)
+        diffs += d
+    if results.is_file():
+        committed = json.loads(results.read_text(encoding="utf-8"))
+        regenerated = json.loads(vres.read_text(encoding="utf-8"))
+        scope = None if stage == "all" else BUILD_RESULT_KEYS
+        diffs += compare_results(committed, regenerated, scope)
+        diffs += check_fingerprints(committed, Paths(out_root, variant, configs_dir))
+    else:
+        diffs.append(f"{results} missing: nothing to compare the results against")
+    return diffs, notes
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Dossier P2: alerts, labels, KYC, dispositions")
     ap.add_argument("stage", choices=["calibrate", "kyc", "build", "split", "all"])
@@ -957,6 +1084,10 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     print(f"Dossier P2 v{P2_VERSION} (polars {pl.__version__})")
     print(f"stage={args.stage} variant={args.variant}")
+    if args.stage == "split" and (ROOT / "data" / "p2_verify").exists():
+        # an earlier --verify left a regenerated copy with the OLD truth-derived runtime file
+        shutil.rmtree(ROOT / "data" / "p2_verify")
+        print("removed data/p2_verify (stale regeneration copy from an earlier --verify)")
     if not args.verify:
         doc = run(
             args.stage,
@@ -983,43 +1114,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.stage not in ("build", "all"):
         raise SystemExit("--verify works with `build` or `all` only")
-    vroot = ROOT / "data" / "p2_verify"
-    vcfg = vroot / "configs"
-    if vroot.exists():
-        shutil.rmtree(vroot)
-    vcfg.mkdir(parents=True)
-    for f in ("p2_fx_usd_per_unit.yaml", "p2_rule_thresholds.yaml"):
-        if (ROOT / "configs" / f).is_file() and args.stage == "build":
-            shutil.copy(ROOT / "configs" / f, vcfg / f)
-    run(
-        "all" if args.stage == "all" else args.stage,
+    diffs, notes = verify(
+        args.stage,
         args.variant,
         args.interim_dir,
-        vroot,
-        vcfg,
-        vroot / "p2_results.verify.json",
+        args.out_root,
+        ROOT / "configs",
+        args.results,
         args.seed,
+        ROOT / "data" / "p2_verify",
     )
-    diffs = compare_runs(args.out_root / args.variant / "runtime", vroot / args.variant / "runtime")
-    diffs += compare_runs(args.out_root / args.variant / "eval", vroot / args.variant / "eval")
-    diffs += compare_runs(
-        args.out_root / args.variant / "devtools", vroot / args.variant / "devtools"
-    )
-    f = "p2_fx_usd_per_unit.yaml"
-    if (vcfg / f).is_file() and sha256(vcfg / f) != sha256(ROOT / "configs" / f):
-        diffs.append(f"configs/{f}: bytes differ")
-    notes: list[str] = []
-    f = "p2_rule_thresholds.yaml"
-    if (vcfg / f).is_file():
-        d, notes = compare_thresholds(ROOT / "configs" / f, vcfg / f)
-        diffs += d
-    if args.results.is_file():
-        committed = json.loads(args.results.read_text(encoding="utf-8"))
-        regenerated = json.loads((vroot / "p2_results.verify.json").read_text(encoding="utf-8"))
-        diffs += compare_results(committed, regenerated)
-        diffs += check_fingerprints(committed, Paths(args.out_root, args.variant, ROOT / "configs"))
-    else:
-        diffs.append(f"{args.results} missing: nothing to compare the results against")
     if diffs:
         print(f"REGENERATION FAILED: {len(diffs)} differences")
         for d in diffs[:40]:

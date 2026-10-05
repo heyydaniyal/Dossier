@@ -248,15 +248,24 @@ def split_v2(
     ).sort("alert_id")
 
 
-def check_disjoint_v2(assign: pl.DataFrame, att: pl.DataFrame, unatt: pl.DataFrame) -> dict:
-    """On the FULL memberships (any date): no account, no attempt and no unattributed laundering
-    transaction has TEST-alerted members in both groups. Raises on violation."""
+def check_disjoint_v2(
+    assign: pl.DataFrame,
+    att: pl.DataFrame,
+    unatt: pl.DataFrame,
+    variant: str | None = None,
+    test_start=None,
+    test_end=None,
+) -> dict:
+    """On the FULL memberships (any date): no account and no attempt has TEST-alerted members in
+    both groups; and no unattributed laundering transaction the variant links (A: dated in TEST;
+    B, C: any date) does either. Raises on violation; returns counts."""
     acct_groups = assign.group_by("account_key").agg(pl.col("agent_group").n_unique().alias("g"))
     if (acct_groups["g"] > 1).any():
         raise AssertionError("an account is in both AGENT-DEV and AGENT-TEST")
     groups = assign.select("account_key", "agent_group").unique()
-    out = {"n_accounts": acct_groups.height}
-    for name, m in (("attempt", att), ("unattributed_txn", unatt)):
+    out: dict = {"n_accounts": acct_groups.height}
+
+    def crossing(m: pl.DataFrame) -> tuple[int, int]:
         g = (
             m.select("node", "account_key")
             .unique()
@@ -264,10 +273,26 @@ def check_disjoint_v2(assign: pl.DataFrame, att: pl.DataFrame, unatt: pl.DataFra
             .group_by("node")
             .agg(pl.col("agent_group").n_unique().alias("g"))
         )
-        out[f"n_{name}_nodes_touching_test_alerts"] = g.height
-        out[f"n_{name}_nodes_in_both_groups"] = int((g["g"] > 1).sum())
+        return g.height, int((g["g"] > 1).sum())
+
+    out["n_attempt_nodes_touching_test_alerts"], out["n_attempt_nodes_in_both_groups"] = crossing(
+        att
+    )
+    n_u, x_u = crossing(unatt)
+    out["n_unattributed_txn_nodes_touching_test_alerts"] = n_u
+    out["n_unattributed_txn_nodes_in_both_groups"] = x_u
     if out["n_attempt_nodes_in_both_groups"]:
         raise AssertionError("a pattern instance is in both AGENT-DEV and AGENT-TEST")
+    if variant is not None:
+        linked = unatt
+        if variant == VARIANTS[0]:
+            linked = unatt.filter(
+                (pl.col("timestamp") >= test_start) & (pl.col("timestamp") < test_end)
+            )
+        if crossing(linked)[1]:
+            raise AssertionError(
+                f"variant {variant}: a linked unattributed laundering transaction is in both groups"
+            )
     return out
 
 

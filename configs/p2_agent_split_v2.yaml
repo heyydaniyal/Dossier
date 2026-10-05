@@ -3,14 +3,28 @@
 # original vs corrected, log the TEST exposure). Declared BEFORE the rebuild is run; nothing here
 # may change after `run_p2 split` has printed counts.
 #
-# Unchanged from configs/p2_split.yaml (FROZEN, not edited): hash_key, fraction_agent_test, the
-# feasibility gates, and the rule "AGENT-DEV and AGENT-TEST share no account and no pattern
-# instance". What changes is how the graph is built (src/eval/group_split.py, v2):
-#   memberships come from the WHOLE raw file (patterns file for attempts; every laundering
-#   transaction in no pattern), not from laundering legs cut to the usable span.
+# Unchanged from configs/p2_split.yaml (FROZEN, not edited): fraction_agent_test, the feasibility
+# gates, and the rule "AGENT-DEV and AGENT-TEST share no account and no pattern instance".
+# What changes (src/eval/group_split.py, v2):
+#   1. memberships come from the WHOLE raw file (patterns file for attempts; every laundering
+#      transaction in no pattern), not from laundering legs cut to the usable span;
+#   2. the group key (see group_key below; NEEDS DANI'S DECISION, it replaces the frozen public
+#      hash_key of p2_split.yaml for the group draw).
 version: 2
 status: DECLARED
 declared_on: "2026-10-05"
+
+# Group key (second-pass review of the P3 fixes, 2026-10-05). With the PUBLIC key of
+# p2_split.yaml, anyone holding the AGENT-DEV list (the prompt developers, by design) can compute
+# the group each TEST account would get on its own; an account whose real group differs must be
+# in a multi-account component, i.e. linked to laundering (demo: precision 1.0). A SECRET key
+# removes that: each component's group is a coin flip nobody can predict. The key lives only in
+# Dani's .env (DOSSIER_AGENT_SPLIT_KEY, >= 32 characters, never committed); the results JSON
+# records its sha256 so a re-run can be checked. Consequence: groups are re-drawn (a component no
+# longer keeps its v1 group). Allowed values: env (recommended) | p2_split_public (v1 behaviour).
+group_key:
+  source: env
+  env_var: DOSSIER_AGENT_SPLIT_KEY
 
 # Graphs, from the frozen v1 method done correctly to the most conservative.
 variants:

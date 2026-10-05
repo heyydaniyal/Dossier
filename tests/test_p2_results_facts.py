@@ -3,9 +3,13 @@
 
 Two kinds of check:
   - gates and invariants (precision band, ceilings, deviations recorded with exact values);
-  - DOC_FACTS: every measured number stated in docs/P2_ALERT_LAYER.md is rendered from the JSON
-    and must appear verbatim in the doc (review finding M-3, P3 task 0: the P2 version of this
-    file never opened the doc). Changing a number in either place fails the test.
+  - DOC_FACTS: the measured numbers of docs/P2_ALERT_LAYER.md §6 (feasibility), §8 (KYC leakage,
+    identity guard), §9 (planting), §13 (summary) and the §5 revision-2 actuals are rendered from
+    the JSON and must appear verbatim in the doc (review finding M-3, P3 task 0: the P2 version of
+    this file never opened the doc). Changing a number in either place fails the test.
+    NOT covered: numbers quoted from the review (§10, §12, e.g. 83.5% hard share; they come from
+    the review's arithmetic, not from the results JSON) and historical numbers from overwritten
+    runs (§5, §8; marked as such in the doc).
 
 P2 is closed, so a missing results file is a FAILURE, not a skip (review m-7).
 """
@@ -157,9 +161,10 @@ def test_runtime_store_schemas():
 def _get(path: str):
     """JSON value at a dotted path. 'build.feasibility_doc_basis' = the ORIGINAL P2 build counts
     (the doc's §6 line describes the 2026-09-30 build): after the P3 split rebuild these live in
-    build.feasibility_p2v1_original, before it in build.feasibility."""
-    b = RES["build"]
-    alias = (b.get("feasibility_p2v1_original") or b["feasibility"])["counts"]
+    p2v1_original.feasibility, before it in build.feasibility."""
+    alias = (RES.get("p2v1_original", {}).get("feasibility") or RES["build"]["feasibility"])[
+        "counts"
+    ]
     o = RES
     for i, part in enumerate(path.split(".")):
         if i == 1 and path.startswith("build.feasibility_doc_basis."):
@@ -375,3 +380,25 @@ def test_doc_revision2_actuals_are_derived_from_the_json():
         f"({no_r04 / days:.0f}/day); VALIDATION has {val} true alerts"
     )
     assert s in DOC_PATH.read_text(encoding="utf-8"), s
+
+
+def test_agent_split_v2_state_matches_the_exposure_log():
+    """Until `run_p2 split` has run on the real data, the results JSON has no v2 split and the
+    exposure log's split row is PENDING. Afterwards the row must carry a time, and the v2 result
+    must satisfy the rule it was built for (no skip either way)."""
+    log = (ROOT / "docs" / "holdout_exposure_log.md").read_text(encoding="utf-8")
+    row = next(ln for ln in log.splitlines() if "`run_p2 split`" in ln)
+    rep = RES["build"].get("agent_split")
+    if rep is None:
+        assert "| PENDING |" in row
+        assert "p2v1_original" not in RES
+        return
+    assert "| PENDING |" not in row, "log the split run's UTC time in docs/holdout_exposure_log.md"
+    assert rep["chosen_variant"] is not None
+    d = rep["variants"][rep["chosen_variant"]]
+    assert d["disjointness_on_full_memberships"]["n_attempt_nodes_in_both_groups"] == 0
+    assert d["passes_gates"]
+    assert RES["build"]["feasibility"]["gates"]["largest_component_share"]
+    assert "p2v1_original" in RES and "moved_to_other_group_in_v2" in RES["p2v1_original"]
+    assert "runtime/agent_dev_alert_ids.parquet" not in RES["stores"]
+    assert "devtools/agent_dev_alert_ids.parquet" in RES["stores"]

@@ -4,7 +4,8 @@
 Independent P2 review, finding m-4 (P3 task 0; approved by Dani 2026-10-05).
 - `FORBIDDEN_FIELDS` gains the truth-derived columns of the P2 evaluation store: `attempt_id`, `attempt_ids`, `has_unattributed`, `n_laundering_txns`, `is_pos`, `planted`, `laundering_account`, `agent_group`. Before, only a test-local list covered them, so the P7 runtime evidence scanner would have let `attempt_ids` through.
 - Deliberately NOT added: `typology`/`typologies` (the Typology agent may name typologies as its own reasoning) and `component` (too generic).
-- No model, field or validator changed. Nothing produced in P2 carries any of these keys in agent-visible payloads.
+- `find_forbidden_fields` normalises keys before matching (trim, lowercase, spaces and hyphens → `_`), so the raw column name `Is Laundering` is caught too (second-pass review).
+- No model or field changed. Nothing produced in P2 carries any of these keys in agent-visible payloads.
 - Team announcement: required (Dani to post).
 
 ## v1.0.0 — 2026-09-25 — FROZEN

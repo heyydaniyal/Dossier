@@ -11,6 +11,7 @@ old suite missed and this test catches (mutations listed per test).
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -64,6 +65,9 @@ def test_kyc_depends_on_burn_in_transactions_only(p2_run, tmp_path):
     t.write_parquet(tp)
     base = dst / "out" / "FIX"
     (base / "work" / "burn_in_stats.parquet").unlink()
+    # second-pass review: also remove the cached per-day statistics, so KYC code that read them
+    # (instead of the burn-in day) would crash here rather than see unperturbed values
+    shutil.rmtree(base / "work" / "account_day_stats")
     (base / "runtime" / "kyc.parquet").unlink()
     run_p2.run(
         "kyc",
@@ -359,21 +363,57 @@ def test_pipeline_fits_fx_on_exactly_the_train_period(p2_run):
 
 def test_cache_manifest_matches_and_stale_cache_is_refused(p2_run, tmp_path):
     from scripts.p2 import run_p2
+    from src.data import kyc as kycmod
 
     split, rcfg = load_split(p2_run["cp"].split), rules.load_rules(p2_run["cp"].rules)
+    kcfg = kycmod.load_kyc_config()
     P = run_p2.Paths(p2_run["root"] / "out", "FIX", p2_run["configs"])
-    key = run_p2.cache_key(split, rcfg, P.fx, p2_run["cp"].sources, "FIX")
+    key = run_p2.cache_key(split, rcfg, P.fx, p2_run["cp"].sources, "FIX", kcfg)
     assert run_p2.check_cache(P, key) == "match"
     # a rule parameter change makes the cached statistics stale -> loud failure
     rcfg2 = yaml.safe_load(yaml.safe_dump(rcfg))
     rcfg2["rules"]["R03_STRUCTURING"]["band_usd"]["lo"] = 8000
     with pytest.raises(run_p2.StaleCacheError):
-        run_p2.check_cache(P, run_p2.cache_key(split, rcfg2, P.fx, p2_run["cp"].sources, "FIX"))
+        run_p2.check_cache(
+            P, run_p2.cache_key(split, rcfg2, P.fx, p2_run["cp"].sources, "FIX", kcfg)
+        )
+    # an interrupted stats run leaves an incomplete manifest -> refused
+    R = run_p2.Paths(tmp_path / "r", "FIX", p2_run["configs"])
+    R.work.mkdir(parents=True)
+    R.cache_manifest.write_text(json.dumps({"cache_key": key, "complete": False}), "utf-8")
+    with pytest.raises(run_p2.StaleCacheError, match="incomplete"):
+        run_p2.check_cache(R, key)
     # a cache from before the manifest existed is recorded, not silently trusted forever
     Q = run_p2.Paths(tmp_path, "FIX", p2_run["configs"])
     Q.stats_dir.mkdir(parents=True)
     assert run_p2.check_cache(Q, key) == "created"
     assert run_p2.check_cache(Q, key) == "match"
+
+
+def test_verify_build_and_all_reproduce_the_fixture(p2_run, tmp_path):
+    """Second-pass review M1: `build --verify` used to fail on keys a build never writes. Run the
+    real verify() for both stages on a copy of the fixture: no differences."""
+    from scripts.p2 import run_p2
+
+    dst = tmp_path / "copy"
+    shutil.copytree(p2_run["root"] / "out", dst / "out")
+    shutil.copytree(p2_run["root"] / "configs", dst / "configs")
+    shutil.copyfile(p2_run["root"] / "results.json", dst / "results.json")
+    for stage in ("build", "all"):
+        diffs, _ = run_p2.verify(
+            stage, "FIX", p2_run["info"]["interim"], dst / "out", dst / "configs",
+            dst / "results.json", 20260930, tmp_path / f"v_{stage}", cp=p2_run["cp"],
+            primary="FIX",
+        )  # fmt: skip
+        assert diffs == [], (stage, diffs[:5])
+    # and a tampered store is caught
+    k = dst / "out" / "FIX" / "runtime" / "kyc.parquet"
+    pl.read_parquet(k).head(5).write_parquet(k)
+    diffs, _ = run_p2.verify(
+        "build", "FIX", p2_run["info"]["interim"], dst / "out", dst / "configs",
+        dst / "results.json", 20260930, tmp_path / "v_bad", cp=p2_run["cp"], primary="FIX",
+    )  # fmt: skip
+    assert any("kyc.parquet" in d for d in diffs)
 
 
 def test_verify_compares_results_json_and_fingerprints(p2_run, p2_run_again, tmp_path):
