@@ -1,5 +1,8 @@
 """AGENT-DEV / AGENT-TEST group split of TEST-period alerts. EVALUATION ONLY (reads patterns).
 
+v1 (P2, below first) is kept for the original-vs-corrected record; v2 (further below) is used from
+P3 task 0 on (review finding M-6, approved by Dani 2026-10-05).
+
 Method (frozen in configs/p2_split.yaml): build a graph whose nodes are the accounts with a TEST
 alert; join two accounts if they take part in the same laundering pattern instance (attempt,
 any date) or are the two sides of an unattributed laundering transaction dated in TEST. Every
@@ -14,6 +17,7 @@ import numpy as np
 import polars as pl
 
 from src.data.hashing import keyed_u64, uniforms
+from src.eval.alert_labels import KEY_COLS
 
 AGENT_DEV = "AGENT-DEV"
 AGENT_TEST = "AGENT-TEST"
@@ -96,6 +100,175 @@ def split_test_alerts(
         .replace_strict(comp_of_acct, return_dtype=pl.String)
         .alias("component"),
     ).sort("alert_id")
+
+
+# ---------------------------------------------------------------- v2 (P3 task 0, review M-6)
+#
+# v1 above builds attempt membership from laundering legs CUT to the usable span and only through
+# TEST-alerted accounts. The independent P2 review (2026-10-01, finding M-6) showed three gaps:
+#   (a) two TEST-alerted accounts whose attempts meet only at a hub WITHOUT a TEST alert can land
+#       in different groups;
+#   (b) an attempt member whose legs fall only in the excluded tail (>= 09-17) is not linked, so
+#       an attempt can be shared by both groups -- a strict violation the v1 check cannot see,
+#       because it uses the same cut legs;
+#   (c) unattributed laundering links outside TEST are ignored.
+# v2 builds memberships from the WHOLE raw file (patterns file for attempts, every unattributed
+# laundering transaction) and offers three graphs, from the frozen method done correctly (A) to the
+# most conservative (C). Which one is used is decided by a rule declared before the run
+# (configs/p2_agent_split_v2.yaml). Hash key and fraction are unchanged, so a component with the
+# same members keeps its v1 group.
+
+VARIANTS = ("A_attempts_full", "B_plus_unattributed_any_date", "C_full_laundering_graph")
+
+
+def attempt_members(patterns_path) -> pl.DataFrame:
+    """(node, account_key) for every pattern attempt, any date: node = 'att:<attempt_id>'."""
+    p = pl.scan_parquet(patterns_path)
+    out = pl.concat(
+        [
+            p.select(
+                pl.col("attempt_id"),
+                pl.concat_str([pl.col("from_bank"), pl.lit("|"), pl.col("from_account")]).alias(
+                    "account_key"
+                ),
+            ),
+            p.select(
+                pl.col("attempt_id"),
+                pl.concat_str([pl.col("to_bank"), pl.lit("|"), pl.col("to_account")]).alias(
+                    "account_key"
+                ),
+            ),
+        ]
+    )
+    return (
+        out.select(
+            pl.concat_str([pl.lit("att:"), pl.col("attempt_id").cast(pl.String)]).alias("node"),
+            "account_key",
+        )
+        .unique()
+        .sort("node", "account_key")
+        .collect()
+    )
+
+
+def unattributed_members(trans_path, patterns_path) -> pl.DataFrame:
+    """(node, account_key, timestamp) for every laundering transaction in NO pattern, any date
+    (burn-in, embargo and the D1 tail included): node = 'txn:<row_id>', both sides."""
+    t = (
+        pl.scan_parquet(trans_path)
+        .select(["row_id", *KEY_COLS, "is_laundering"])
+        .filter(pl.col("is_laundering") == 1)
+    )
+    p = pl.scan_parquet(patterns_path).select(KEY_COLS)
+    un = t.join(p, on=KEY_COLS, how="anti").with_columns(
+        pl.col("timestamp").dt.replace_time_zone("UTC"),
+        pl.concat_str([pl.lit("txn:"), pl.col("row_id").cast(pl.String)]).alias("node"),
+    )
+    sides = [("from_bank", "from_account"), ("to_bank", "to_account")]
+    return (
+        pl.concat(
+            [
+                un.select(
+                    "node",
+                    pl.concat_str([pl.col(b), pl.lit("|"), pl.col(a)]).alias("account_key"),
+                    "timestamp",
+                )
+                for b, a in sides
+            ]
+        )
+        .unique(["node", "account_key"])
+        .sort("node", "account_key")
+        .collect()
+    )
+
+
+def memberships(
+    variant: str,
+    att: pl.DataFrame,
+    unatt: pl.DataFrame,
+    test_accounts: set[str],
+    test_start,
+    test_end,
+) -> pl.DataFrame:
+    """(node, account_key) edges of the graph for one variant."""
+    if variant not in VARIANTS:
+        raise ValueError(f"unknown split variant {variant}")
+    un = unatt
+    if variant == VARIANTS[0]:  # frozen v1 scope: unattributed links dated in TEST only
+        un = un.filter((pl.col("timestamp") >= test_start) & (pl.col("timestamp") < test_end))
+    m = pl.concat([att.select("node", "account_key"), un.select("node", "account_key")])
+    if variant != VARIANTS[2]:  # A, B: only TEST-alerted accounts are graph nodes
+        m = m.filter(pl.col("account_key").is_in(list(test_accounts)))
+    return m.unique().sort("node", "account_key")
+
+
+def split_v2(
+    test_alerts: pl.DataFrame,
+    members: pl.DataFrame,
+    hash_key: str,
+    fraction_agent_test: float,
+) -> pl.DataFrame:
+    """Components of the bipartite graph {accounts} x {attempt / transaction nodes}, projected onto
+    TEST-alerted accounts. Group by keyed hash of the component's smallest member hash (TEST-alerted
+    members only, as in v1). Order-free; no ID value or order decides anything (D5)."""
+    accounts = set(test_alerts["account_key"].to_list())
+    uf = _UF()
+    for a in accounts:
+        uf.find("acct:" + a)
+    for node, acct in members.select("node", "account_key").iter_rows():
+        uf.union(node, "acct:" + acct)
+    acc_list = sorted(accounts)
+    h = keyed_u64(acc_list, hash_key, 0) if acc_list else []
+    hmap = dict(zip(acc_list, (int(x) for x in h), strict=True))
+    comp_min: dict[str, int] = {}
+    for a in acc_list:
+        r = uf.find("acct:" + a)
+        comp_min[r] = min(comp_min.get(r, hmap[a]), hmap[a])
+    roots = sorted(comp_min)
+    u = (
+        uniforms(np.array([comp_min[r] for r in roots], dtype=np.uint64), hash_key + "|group")
+        if roots
+        else []
+    )
+    group_of_root = {
+        r: (AGENT_TEST if ui < fraction_agent_test else AGENT_DEV)
+        for r, ui in zip(roots, u, strict=True)
+    }
+    comp_of_acct = {a: f"{comp_min[uf.find('acct:' + a)]:016x}" for a in acc_list}
+    grp_of_acct = {a: group_of_root[uf.find("acct:" + a)] for a in acc_list}
+    return test_alerts.select(
+        "alert_id",
+        "account_key",
+        pl.col("account_key")
+        .replace_strict(grp_of_acct, return_dtype=pl.String)
+        .alias("agent_group"),
+        pl.col("account_key")
+        .replace_strict(comp_of_acct, return_dtype=pl.String)
+        .alias("component"),
+    ).sort("alert_id")
+
+
+def check_disjoint_v2(assign: pl.DataFrame, att: pl.DataFrame, unatt: pl.DataFrame) -> dict:
+    """On the FULL memberships (any date): no account, no attempt and no unattributed laundering
+    transaction has TEST-alerted members in both groups. Raises on violation."""
+    acct_groups = assign.group_by("account_key").agg(pl.col("agent_group").n_unique().alias("g"))
+    if (acct_groups["g"] > 1).any():
+        raise AssertionError("an account is in both AGENT-DEV and AGENT-TEST")
+    groups = assign.select("account_key", "agent_group").unique()
+    out = {"n_accounts": acct_groups.height}
+    for name, m in (("attempt", att), ("unattributed_txn", unatt)):
+        g = (
+            m.select("node", "account_key")
+            .unique()
+            .join(groups, on="account_key")
+            .group_by("node")
+            .agg(pl.col("agent_group").n_unique().alias("g"))
+        )
+        out[f"n_{name}_nodes_touching_test_alerts"] = g.height
+        out[f"n_{name}_nodes_in_both_groups"] = int((g["g"] > 1).sum())
+    if out["n_attempt_nodes_in_both_groups"]:
+        raise AssertionError("a pattern instance is in both AGENT-DEV and AGENT-TEST")
+    return out
 
 
 def check_disjoint(assign: pl.DataFrame, legs: pl.DataFrame) -> dict:

@@ -6,6 +6,7 @@ Usage (repo root, on the machine that holds data/interim from P1):
     uv run python -m scripts.p2.run_p2 kyc           # KYC v2 + leakage tests only (no TEST)
     uv run python -m scripts.p2.run_p2 build         # everything; READS TEST (counts, split)
     uv run python -m scripts.p2.run_p2 all --verify  # regenerate everything elsewhere (READS TEST)
+    uv run python -m scripts.p2.run_p2 split         # AGENT split v2 on a build (READS TEST)
 Rule (Dani, 2026-09-30): ask before running any stage that reads TEST.
 
 Order is enforced: `build` refuses to run without configs/p2_rule_thresholds.yaml and records its
@@ -47,6 +48,7 @@ PRIMARY = "HI-Medium"
 DEFAULT_RESULTS = ROOT / "docs" / "p2" / "p2_results.json"
 FX_FILE = ROOT / "configs" / "p2_fx_usd_per_unit.yaml"
 DISP_CONFIG = ROOT / "configs" / "p2_dispositions.yaml"
+SPLIT_V2_CONFIG = ROOT / "configs" / "p2_agent_split_v2.yaml"
 
 
 # ---------------------------------------------------------------- helpers
@@ -91,12 +93,16 @@ class Paths:
         self.stats_dir = self.work / "account_day_stats"
         self.burn_in = self.work / "burn_in_stats.parquet"
         self.keys = self.work / "account_keys.parquet"
+        self.cache_manifest = self.work / "cache_manifest.json"
         self.pos = self.eval / "positive_account_days.parquet"
         self.legs = self.eval / "laundering_legs.parquet"
         self.alerts = self.runtime / "alerts.parquet"
         self.kyc = self.runtime / "kyc.parquet"
         self.disp = self.runtime / "dispositions.parquet"
-        self.dev_ids = self.runtime / "agent_dev_alert_ids.parquet"
+        self.devtools = self.root / "devtools"  # P6/P8 dev tooling only; never the runtime
+        self.dev_ids = self.devtools / "agent_dev_alert_ids.parquet"
+        self.old_dev_ids = self.runtime / "agent_dev_alert_ids.parquet"  # P2 location (removed)
+        self.archive_v1 = self.root / "archive" / "agent_split_p2v1.parquet"
         self.labels = self.eval / "alert_labels.parquet"
         self.split = self.eval / "agent_split.parquet"
         self.planting = self.eval / "planting.parquet"
@@ -105,6 +111,42 @@ class Paths:
 
     def stats_file(self, ws: datetime) -> Path:
         return self.stats_dir / f"{ws.date().isoformat()}.parquet"
+
+
+def cache_key(split: Split, rcfg: dict, fx_path: Path, sources: Path, variant: str) -> str:
+    """Semantic hash of everything the cached statistics depend on (review m-9): rule parameters,
+    the FX table, the windows, and the frozen input fingerprint. Documentation-only edits to a
+    config do not change it; any change that alters a statistic does."""
+    src = yaml.safe_load(sources.read_text(encoding="utf-8"))["files"]
+    basis = {
+        "rules": rcfg["rules"],
+        "fx": fxmod.load(fx_path) if fx_path.is_file() else None,
+        "l_max": split.l_max.total_seconds(),
+        "burn_in": [t.isoformat() for t in split.burn_in],
+        "periods": {k: [a.isoformat(), b.isoformat()] for k, (a, b) in split.periods.items()},
+        "inputs": {k: v["sha256"] for k, v in sorted(src.items()) if k.startswith(variant + "_")},
+    }
+    return hashlib.sha256(json.dumps(basis, sort_keys=True, default=str).encode()).hexdigest()
+
+
+class StaleCacheError(RuntimeError):
+    """Cached statistics were built from different inputs than the current ones."""
+
+
+def check_cache(P: Paths, key: str) -> str:
+    """'match' | 'created' (cache predates the manifest: recorded, reported) | raises if stale."""
+    if not P.cache_manifest.is_file():
+        if P.stats_dir.is_dir() or P.burn_in.is_file():
+            write_text_lf(P.cache_manifest, json.dumps({"cache_key": key}) + "\n")
+            return "created"
+        return "absent"
+    have = json.loads(P.cache_manifest.read_text(encoding="utf-8"))["cache_key"]
+    if have != key:
+        raise StaleCacheError(
+            f"cached statistics in {P.work} were built from different rules/FX/split/inputs "
+            "(cache key mismatch). Delete that folder and re-run the stage."
+        )
+    return "match"
 
 
 def _step(msg: str) -> None:
@@ -182,6 +224,10 @@ def stage_stats(
         n_active[ws.date().isoformat()] = st.height
     info["n_active_account_days"] = n_active
     info["n_accounts_in_span"] = keys.height
+    write_text_lf(
+        P.cache_manifest,
+        json.dumps({"cache_key": cache_key(split, rcfg, P.fx, sources, variant)}) + "\n",
+    )
     loc = (
         attrs.group_by("bank_location", "bank_country")
         .len()
@@ -289,11 +335,13 @@ def stage_calibrate(P: Paths, split: Split, rcfg: dict, pos: pl.DataFrame, cp: C
 
 def stage_build(
     variant: str,
+    interim: Path,
     P: Paths,
     split: Split,
     rcfg: dict,
     kcfg: dict,
     dcfg: dict,
+    svcfg: dict,
     pos: pl.DataFrame,
     seed: int,
 ) -> dict:
@@ -362,75 +410,18 @@ def stage_build(
         "n_positive_alerts": int(tb["is_true_positive"].sum()),
     }
 
-    # ---- AGENT-DEV / AGENT-TEST split (evaluation store)
-    _step("AGENT-DEV / AGENT-TEST group split")
-    legs = pl.read_parquet(P.legs)
-    scfg = split.raw["agent_split"]
-    ts0, ts1 = split.periods["TEST"]
-    assign = gs.split_test_alerts(
-        t.select("alert_id", "account_key"),
-        legs,
-        ts0,
-        ts1,
-        scfg["hash_key"],
-        scfg["fraction_agent_test"],
-    )
-    disj = gs.check_disjoint(assign, legs)
-    write_parquet(assign, P.split)
-    write_parquet(
-        assign.filter(pl.col("agent_group") == gs.AGENT_DEV).select("alert_id"), P.dev_ids
-    )
-    ga = assign.join(t.select("alert_id", "is_true_positive"), on="alert_id")
-    comp = ga.group_by("component").agg(
-        pl.len().alias("n"), pl.col("is_true_positive").sum().alias("npos")
-    )
-    n_test_pos = max(int(t["is_true_positive"].sum()), 1)
-    counts["TEST_agent_groups"] = {
-        g: {
-            "n_alerts": int((ga["agent_group"] == g).sum()),
-            "n_positive_alerts": int(
-                ga.filter(pl.col("agent_group") == g)["is_true_positive"].sum()
-            ),
-        }
-        for g in (gs.AGENT_DEV, gs.AGENT_TEST)
-    }
-    counts["TEST_components"] = {
-        "n_components": comp.height,
-        "largest_component_alerts": int(comp["n"].max()),
-        "largest_component_share_of_positive_alerts": _sig(int(comp["npos"].max()) / n_test_pos),
-        "n_components_with_positive": int((comp["npos"] > 0).sum()),
-    } | disj
-    fz = split.raw["feasibility"]
-    gates = {
-        f"{p}_min_positive": counts[p]["n_positive_alerts"] >= m
-        for p, m in fz["min_positive_alerts"].items()
-    }
-    for g in (gs.AGENT_DEV, gs.AGENT_TEST):
-        gates[f"{g}_min_positive"] = (
-            counts["TEST_agent_groups"][g]["n_positive_alerts"]
-            >= fz["min_positive_alerts_per_agent_group"]
-        )
-    gates["largest_component_share"] = (
-        counts["TEST_components"]["largest_component_share_of_positive_alerts"]
-        <= fz["max_share_of_test_positives_in_one_component"]
-    )
+    # ---- AGENT-DEV / AGENT-TEST split v2 (evaluation store + devtools store, never runtime)
+    t_pos = t.select("alert_id", "account_key", "is_true_positive")
+    assign, sinfo = agent_split_block(interim, variant, P, split, t_pos, svcfg)
+    write_split_outputs(P, assign)
+    counts |= sinfo["counts"]
+    gates = feasibility_gates(split, counts)
     counts["regime_B_underpowered"] = (
         counts["TEST_regime_B_unseen_accounts"]["n_positive_alerts"]
-        < fz["regime_b_min_positive_alerts"]
+        < split.raw["feasibility"]["regime_b_min_positive_alerts"]
     )
-    accepted = {d["gate"]: d for d in fz.get("accepted_deviations") or []}
-    for g in accepted:
-        if g not in gates:
-            raise RuntimeError(f"accepted deviation for unknown gate {g}")
-    failing = sorted(g for g, ok in gates.items() if not ok)
-    out["feasibility"] = {
-        "counts": counts,
-        "gates": gates,
-        "all_pass": not failing,
-        "failing_gates": failing,
-        "accepted_deviations": sorted(g for g in failing if g in accepted),
-        "all_pass_with_accepted_deviations": all(g in accepted for g in failing),
-    }
+    out["feasibility"] = feasibility_block(split, counts, gates)
+    out["agent_split"] = sinfo["report"]
 
     # ---- KYC v2 (runtime store) + planting record (eval store); pre-TEST alerts only
     pre = alerts.filter(pl.col("period").is_in(PRE_TEST_PERIODS))
@@ -445,6 +436,182 @@ def stage_build(
     write_parquet(d, P.disp)
     out["dispositions"] = audit | {"n": d.height}
     return out
+
+
+# ---------------------------------------------------------------- AGENT-DEV / AGENT-TEST (v2)
+
+
+class SplitSelectionError(RuntimeError):
+    """No split variant passes the pre-declared gates; carries the aggregate diagnostics."""
+
+    def __init__(self, msg: str, report: dict):
+        super().__init__(msg)
+        self.report = report
+
+
+def _group_counts(assign: pl.DataFrame, t_pos: pl.DataFrame) -> dict:
+    ga = assign.join(t_pos.select("alert_id", "is_true_positive"), on="alert_id")
+    comp = ga.group_by("component").agg(
+        pl.len().alias("n"), pl.col("is_true_positive").sum().alias("npos")
+    )
+    n_test_pos = max(int(t_pos["is_true_positive"].sum()), 1)
+    groups = {
+        g: {
+            "n_alerts": int((ga["agent_group"] == g).sum()),
+            "n_positive_alerts": int(
+                ga.filter(pl.col("agent_group") == g)["is_true_positive"].sum()
+            ),
+        }
+        for g in (gs.AGENT_DEV, gs.AGENT_TEST)
+    }
+    comps = {
+        "n_components": comp.height,
+        "largest_component_alerts": int(comp["n"].max()),
+        "largest_component_share_of_positive_alerts": _sig(int(comp["npos"].max()) / n_test_pos),
+        "n_components_with_positive": int((comp["npos"] > 0).sum()),
+    }
+    return {"TEST_agent_groups": groups, "TEST_components": comps}
+
+
+def _variant_passes(c: dict, fz: dict) -> bool:
+    return (
+        c["TEST_components"]["largest_component_share_of_positive_alerts"]
+        <= fz["max_share_of_test_positives_in_one_component"]
+    ) and all(
+        c["TEST_agent_groups"][g]["n_positive_alerts"] >= fz["min_positive_alerts_per_agent_group"]
+        for g in (gs.AGENT_DEV, gs.AGENT_TEST)
+    )
+
+
+def choose_variant(order: list[str], passes: dict[str, bool]) -> str | None:
+    """Pre-declared rule: the first variant in preference order that passes the gates."""
+    if sorted(order) != sorted(gs.VARIANTS) or sorted(passes) != sorted(gs.VARIANTS):
+        raise RuntimeError("preference_order must list every split variant exactly once")
+    return next((v for v in order if passes[v]), None)
+
+
+def agent_split_block(
+    interim: Path, variant: str, P: Paths, split: Split, t_pos: pl.DataFrame, svcfg: dict
+) -> tuple[pl.DataFrame, dict]:
+    """Every v2 variant, its aggregate counts, and the variant chosen by the pre-declared rule
+    (configs/p2_agent_split_v2.yaml). READS TEST (alert ids, labels, laundering links)."""
+    _step("AGENT-DEV / AGENT-TEST group split v2")
+    att = gs.attempt_members(interim_path(interim, variant, "patterns"))
+    unatt = gs.unattributed_members(
+        interim_path(interim, variant, "trans"), interim_path(interim, variant, "patterns")
+    )
+    scfg, fz = split.raw["agent_split"], split.raw["feasibility"]
+    ts0, ts1 = split.periods["TEST"]
+    accounts = set(t_pos["account_key"].to_list())
+    alerts = t_pos.select("alert_id", "account_key")
+    results: dict[str, tuple[pl.DataFrame, dict]] = {}
+    for v in gs.VARIANTS:
+        m = gs.memberships(v, att, unatt, accounts, ts0, ts1)
+        a = gs.split_v2(alerts, m, scfg["hash_key"], scfg["fraction_agent_test"])
+        c = _group_counts(a, t_pos)
+        c["disjointness_on_full_memberships"] = gs.check_disjoint_v2(a, att, unatt)
+        c["passes_gates"] = _variant_passes(c, fz)
+        results[v] = (a, c)
+    order = svcfg["preference_order"]
+    chosen = choose_variant(order, {v: results[v][1]["passes_gates"] for v in gs.VARIANTS})
+    report = {
+        "version": svcfg["version"],
+        "config_sha256": svcfg["_sha256"],
+        "preference_order": order,
+        "variants": {v: results[v][1] for v in gs.VARIANTS},
+        "chosen_variant": chosen,
+    }
+    if chosen is None:
+        raise SplitSelectionError("no split variant passes the gates: stop for Dani", report)
+    assign, c = results[chosen]
+    return assign, {
+        "counts": {k: c[k] for k in ("TEST_agent_groups", "TEST_components")}
+        | {"TEST_components_disjointness": c["disjointness_on_full_memberships"]},
+        "report": report,
+    }
+
+
+def write_split_outputs(P: Paths, assign: pl.DataFrame) -> None:
+    write_parquet(assign, P.split)
+    write_parquet(
+        assign.filter(pl.col("agent_group") == gs.AGENT_DEV).select("alert_id"), P.dev_ids
+    )
+    if P.old_dev_ids.is_file():  # review C-2: the runtime must not hold truth-derived membership
+        P.old_dev_ids.unlink()
+
+
+def feasibility_gates(split: Split, counts: dict) -> dict:
+    fz = split.raw["feasibility"]
+    gates = {
+        f"{p}_min_positive": counts[p]["n_positive_alerts"] >= m
+        for p, m in fz["min_positive_alerts"].items()
+    }
+    for g in (gs.AGENT_DEV, gs.AGENT_TEST):
+        gates[f"{g}_min_positive"] = (
+            counts["TEST_agent_groups"][g]["n_positive_alerts"]
+            >= fz["min_positive_alerts_per_agent_group"]
+        )
+    gates["largest_component_share"] = (
+        counts["TEST_components"]["largest_component_share_of_positive_alerts"]
+        <= fz["max_share_of_test_positives_in_one_component"]
+    )
+    return gates
+
+
+def feasibility_block(split: Split, counts: dict, gates: dict) -> dict:
+    accepted = {d["gate"]: d for d in split.raw["feasibility"].get("accepted_deviations") or []}
+    for g in accepted:
+        if g not in gates:
+            raise RuntimeError(f"accepted deviation for unknown gate {g}")
+    failing = sorted(g for g, ok in gates.items() if not ok)
+    return {
+        "counts": counts,
+        "gates": gates,
+        "all_pass": not failing,
+        "failing_gates": failing,
+        "accepted_deviations": sorted(g for g in failing if g in accepted),
+        "all_pass_with_accepted_deviations": all(g in accepted for g in failing),
+    }
+
+
+def stage_split(variant: str, interim: Path, P: Paths, split: Split, svcfg: dict, doc: dict, cp):
+    """One-off rebuild of the AGENT-DEV/AGENT-TEST split with v2 on an existing build, without
+    touching any other store (review M-6 / C-2; approved by Dani 2026-10-05). READS TEST."""
+    if "build" not in doc or "feasibility" not in doc["build"]:
+        raise RuntimeError("`split` needs an existing build in the results JSON")
+    verify_interim(interim, variant, cp.sources)
+    alerts = pl.scan_parquet(P.alerts).filter(pl.col("period") == "TEST")
+    lab = pl.scan_parquet(P.labels).select("alert_id", "is_true_positive")
+    t_pos = alerts.select("alert_id", "account_key").join(lab, on="alert_id").collect()
+    assign, sinfo = agent_split_block(interim, variant, P, split, t_pos, svcfg)
+
+    b = doc["build"]
+    if P.split.is_file() and not P.archive_v1.is_file():  # keep the original P2 assignment
+        P.archive_v1.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(P.split, P.archive_v1)
+    if "feasibility_p2v1_original" not in b:
+        b["feasibility_p2v1_original"] = json.loads(json.dumps(b["feasibility"]))
+    if P.archive_v1.is_file():
+        old = pl.read_parquet(P.archive_v1).select("alert_id", pl.col("agent_group").alias("g1"))
+        moved = old.join(assign.select("alert_id", "agent_group"), on="alert_id")
+        if moved.height != assign.height:
+            raise RuntimeError("v1 and v2 splits do not cover the same TEST alerts")
+        mv = moved.filter(pl.col("g1") != pl.col("agent_group")).join(
+            t_pos.select("alert_id", "is_true_positive"), on="alert_id"
+        )
+        sinfo["report"]["moved_vs_p2v1"] = {
+            "n_alerts": mv.height,
+            "n_positive_alerts": int(mv["is_true_positive"].sum()),
+        }
+    write_split_outputs(P, assign)
+
+    counts = dict(b["feasibility"]["counts"])
+    for k in ("TEST_agent_groups", "TEST_components"):
+        counts[k] = sinfo["counts"][k]
+    counts["TEST_components_disjointness"] = sinfo["counts"]["TEST_components_disjointness"]
+    b["feasibility"] = feasibility_block(split, counts, feasibility_gates(split, counts))
+    b["agent_split"] = sinfo["report"]
+    return doc
 
 
 def kyc_block(
@@ -540,9 +707,11 @@ def kyc_block(
 def stage_kyc(
     variant: str, interim: Path, P: Paths, split: Split, rcfg: dict, kcfg: dict, cp
 ) -> dict:
-    """Regenerate KYC v2 and its leakage tests WITHOUT reading TEST (alerts filtered on read,
-    labels semi-joined on read)."""
+    """Regenerate KYC v2 and its leakage tests without using TEST: alerts are filtered and labels
+    semi-joined lazily, so no TEST row is ever materialised (polars may still scan the file blocks
+    that hold TEST rows; review m-9). KYC itself reads only the burn-in day's statistics."""
     need = {"account_key", *rules.ALL_STATS}
+    check_cache(P, cache_key(split, rcfg, P.fx, cp.sources, variant))
     if not P.burn_in.is_file() or not need <= set(pl.read_parquet_schema(P.burn_in).names()):
         verify_interim(interim, variant, cp.sources)
         tu = fxmod.with_usd(
@@ -563,7 +732,9 @@ def stage_kyc(
 
 
 def store_fingerprints(P: Paths) -> dict:
-    files = sorted([*P.runtime.glob("*.parquet"), *P.eval.glob("*.parquet")])
+    files = sorted(
+        [*P.runtime.glob("*.parquet"), *P.eval.glob("*.parquet"), *P.devtools.glob("*.parquet")]
+    )
     return {
         f"{f.parent.name}/{f.name}": {
             "sha256": sha256(f),
@@ -584,6 +755,7 @@ class ConfigPaths:
     kyc: Path = kycmod.KYC_CONFIG
     dispositions: Path = DISP_CONFIG
     sources: Path = DATA_SOURCES
+    agent_split_v2: Path = SPLIT_V2_CONFIG
 
 
 def run(
@@ -602,6 +774,8 @@ def run(
     rcfg = rules.load_rules(cp.rules)
     kcfg = kycmod.load_kyc_config(cp.kyc)
     dcfg = yaml.safe_load(cp.dispositions.read_text(encoding="utf-8"))
+    svcfg = yaml.safe_load(cp.agent_split_v2.read_text(encoding="utf-8"))
+    svcfg["_sha256"] = sha256(cp.agent_split_v2)
     P = Paths(out_root, variant, configs_dir)
     t0 = time.perf_counter()
     doc: dict = {"p2_version": P2_VERSION, "variant": variant}
@@ -630,7 +804,17 @@ def run(
         doc.setdefault("stores", {})
         for k in ("runtime/kyc.parquet", "eval/planting.parquet"):
             doc["stores"][k] = fps[k]
+    if stage == "split":
+        try:
+            doc = stage_split(variant, interim, P, split, svcfg, doc, cp)
+        except SplitSelectionError as e:  # keep the aggregate diagnostics for Dani's decision
+            fail = results.with_name("p2_agent_split_v2_no_variant_passed.json")
+            write_text_lf(fail, json.dumps(_sig(e.report), indent=2) + "\n")
+            print(f"NO SPLIT VARIANT PASSES THE GATES; nothing written. Diagnostics: {fail}")
+            raise
+        doc["stores"] = store_fingerprints(P)
     if stage in ("build", "all"):
+        check_cache(P, cache_key(split, rcfg, P.fx, cp.sources, variant))
         if not P.stats_dir.is_dir():
             doc["stats"] = stage_stats(variant, interim, P, split, rcfg, kcfg, False, cp.sources)
         pos = (
@@ -638,7 +822,7 @@ def run(
             if P.pos.is_file()
             else stage_positive_days(variant, interim, P, split)
         )
-        doc["build"] = stage_build(variant, P, split, rcfg, kcfg, dcfg, pos, seed)
+        doc["build"] = stage_build(variant, interim, P, split, rcfg, kcfg, dcfg, svcfg, pos, seed)
         doc["positive_account_days_per_period"] = {
             p: _n_pos(pos, split, p) for p in (*PRE_TEST_PERIODS, "TEST")
         }
@@ -683,6 +867,56 @@ def compare_runs(a: Path, b: Path) -> list[str]:
     return diffs
 
 
+# Keys that legitimately differ between the committed results and a fresh `all` regeneration:
+# run metadata; records that only the one-off `split` stage writes (original P2 counts, moves);
+# the thresholds-file hash and its config entry (its inputs_sha256 block records the configs at
+# calibration time, reported as a note by compare_thresholds); store fingerprints (compared by
+# bytes instead).
+RESULTS_IGNORED = (
+    "run_info",
+    "stores",
+    "build.feasibility_p2v1_original",
+    "build.agent_split.moved_vs_p2v1",
+    "build.thresholds_sha256_before_any_test_count",
+    "configs_sha256.p2_rule_thresholds.yaml",
+)
+
+
+def _flatten(o, prefix: str = "") -> dict:
+    if isinstance(o, dict):
+        out: dict = {}
+        for k, v in o.items():
+            out |= _flatten(v, f"{prefix}.{k}" if prefix else str(k))
+        return out
+    return {prefix: o}
+
+
+def compare_results(committed: dict, regenerated: dict) -> list[str]:
+    """Review m-6: --verify also compares every value of the results JSON (KYC leakage,
+    dispositions audit, rule metrics, feasibility, agent split), not only the data files."""
+    a, b = _flatten(committed), _flatten(regenerated)
+
+    def keep(k: str) -> bool:
+        return not any(k == i or k.startswith(i + ".") for i in RESULTS_IGNORED)
+
+    return [
+        f"results JSON '{k}': committed {a.get(k)!r} != regenerated {b.get(k)!r}"
+        for k in sorted({*a, *b})
+        if keep(k) and a.get(k) != b.get(k)
+    ]
+
+
+def check_fingerprints(doc: dict, P: Paths) -> list[str]:
+    """The committed results JSON's store fingerprints must describe the stores on disk."""
+    disk = store_fingerprints(P)
+    want = doc.get("stores", {})
+    return [
+        f"store {k}: results JSON fingerprint does not match the file on disk"
+        for k in sorted({*want, *disk})
+        if want.get(k, {}).get("sha256") != disk.get(k, {}).get("sha256")
+    ]
+
+
 def compare_thresholds(original: Path, regenerated: Path) -> tuple[list[str], list[str]]:
     """Thresholds file check for --verify.
 
@@ -709,7 +943,7 @@ def compare_thresholds(original: Path, regenerated: Path) -> tuple[list[str], li
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Dossier P2: alerts, labels, KYC, dispositions")
-    ap.add_argument("stage", choices=["calibrate", "kyc", "build", "all"])
+    ap.add_argument("stage", choices=["calibrate", "kyc", "build", "split", "all"])
     ap.add_argument("--variant", default=PRIMARY)
     ap.add_argument("--interim-dir", type=Path, default=ROOT / "data" / "interim")
     ap.add_argument("--out-root", type=Path, default=ROOT / "data" / "p2")
@@ -747,6 +981,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"wrote {args.results}")
         return 0
+    if args.stage not in ("build", "all"):
+        raise SystemExit("--verify works with `build` or `all` only")
     vroot = ROOT / "data" / "p2_verify"
     vcfg = vroot / "configs"
     if vroot.exists():
@@ -766,6 +1002,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     diffs = compare_runs(args.out_root / args.variant / "runtime", vroot / args.variant / "runtime")
     diffs += compare_runs(args.out_root / args.variant / "eval", vroot / args.variant / "eval")
+    diffs += compare_runs(
+        args.out_root / args.variant / "devtools", vroot / args.variant / "devtools"
+    )
     f = "p2_fx_usd_per_unit.yaml"
     if (vcfg / f).is_file() and sha256(vcfg / f) != sha256(ROOT / "configs" / f):
         diffs.append(f"configs/{f}: bytes differ")
@@ -774,14 +1013,21 @@ def main(argv: list[str] | None = None) -> int:
     if (vcfg / f).is_file():
         d, notes = compare_thresholds(ROOT / "configs" / f, vcfg / f)
         diffs += d
+    if args.results.is_file():
+        committed = json.loads(args.results.read_text(encoding="utf-8"))
+        regenerated = json.loads((vroot / "p2_results.verify.json").read_text(encoding="utf-8"))
+        diffs += compare_results(committed, regenerated)
+        diffs += check_fingerprints(committed, Paths(args.out_root, args.variant, ROOT / "configs"))
+    else:
+        diffs.append(f"{args.results} missing: nothing to compare the results against")
     if diffs:
         print(f"REGENERATION FAILED: {len(diffs)} differences")
         for d in diffs[:40]:
             print("  " + d)
         return 1
     print(
-        "REPRODUCED: every data file and the FX table are byte-identical; "
-        "thresholds file identical in every calibrated value"
+        "REPRODUCED: every data file and the FX table are byte-identical; thresholds file "
+        "identical in every calibrated value; results JSON identical in every value"
     )
     for n in notes:
         print("  note: " + n)

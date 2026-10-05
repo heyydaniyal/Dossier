@@ -112,6 +112,14 @@ The per-rule diagnostic (`docs/p2/p2_train_diagnostics.json`, TRAIN only) showed
 - **Expected from the per-rule table**, before overlaps: about 3.5% precision, about 65 true non-fan-in alerts/day, VALIDATION about 290. This is checked on the real `calibrate` output **before** `build`.
 - **Realism check:** real banks report 2.8% of alerts becoming a SAR (MBCA survey) and about 4% (BPI, largest US banks).
 
+**Corrections (2026-10-05, independent P2 review, P3 task 0; the frozen configs are not edited, these notes are the record):**
+- **VALIDATION was used (review M-4).** "Decided on TRAIN only" is inaccurate. The revision-2 trigger "VALIDATION projected at about 218" is revision-1 TRAIN recall (6.4%) × the VALIDATION count of positive account-days (3,411), an aggregate VALIDATION label count that `calibrate` writes before any threshold exists. It was used to check the VALIDATION gate and so drove the move to revision 2. The data-access matrix allows VALIDATION for threshold selection and no TEST data was involved, but `p2_rules.yaml` says otherwise; it is logged as a VALIDATION exposure in `docs/holdout_exposure_log.md`.
+- **Revision-2 expectations vs actuals (review m-8).** Expected about 65 true non-fan-in alerts/day and VALIDATION about 290. Actual (final build): 165 TRAIN true alerts carry at least one rule other than R04 (41/day) and 144 carry no R04 at all (36/day); VALIDATION has 213 true alerts. The expectation was not met; the VALIDATION gate (200) still passes.
+- **Why R06, R08, R09 were dropped (review m-7).** R06 reached 5.9% precision at τ 0.99999 but with only 2 true alerts: dropped by the ≥ 10 true-alert minimum, not by precision. R08's best level was 0.5% precision (2 true alerts): below the 2% floor. R09 never fired at any τ on TRAIN.
+- **"The threshold is always an observed value" (review m-8).** Thresholds are stored rounded to 10 significant digits, so one can round up past the observed quantile, and account-days exactly at that quantile then do not fire. Calibration and build use the same stored value, so P2 results are consistent; only the wording was wrong.
+- **R01 ⊂ R02 by construction (review m-3).** `volume_usd ≥ max_txn_usd` for every account-day, and every R02 threshold is below R01's, so every R01 alert also fires R02. This follows from the definitions, not only from the data. The rule count is "≥ 6 active rules" only when R01 is counted; anchoring in the simulated dispositions (§10) counts R01 + R02 as two rules.
+- **Numbers from overwritten runs (review m-8).** The revision-0 and revision-1 figures above, the KYC v1/v2 figures in §8 and "adding 09-06 gives about 920" come from runs whose results JSON was overwritten by later runs. They are not in the committed `p2_results.json` and cannot be re-checked. "About 920" is an estimate, not a measured count.
+
 **Note for P6 (approved with revision 1, refined 2026-09-30):** the evaluation sample is **stratified by triggered rule**, at least into two groups, *fan-in* and *other rules*, and agent results are reported per group. Per-rule strata are used only where there are enough real cases. The exact allocation is set in P6.
 
 Task-5 reporting is in `p2_results.json → build.rule_metrics`:
@@ -131,13 +139,29 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
   - The gate value itself is unchanged, and `tests/test_p2_results_facts.py` accepts only deviations recorded with the exact measured value.
 - **Result (final build, 2026-09-30):** positive alerts TRAIN 721, VALIDATION 213, CALIBRATION 616, TEST 1,020 (AGENT-DEV 522, AGENT-TEST 498); largest TEST component 0.88% of TEST positives; regime B 869 positives. Every gate passes except the documented TRAIN deviation. The one permitted boundary adjustment was **not** used.
 - **FROZEN 2026-09-30**, after `run_p2 all --verify` printed REPRODUCED on Dani's laptop (with one note: `p2_split.yaml` changed after calibration, which was the deviation text only).
+- **Correction pending (2026-10-05):** the AGENT-DEV/AGENT-TEST numbers above come from split v1. The review found gaps in how v1 builds the graph (§7). The split is rebuilt once with v2 (`run_p2 split`); the original numbers stay in `build.feasibility_p2v1_original` and the corrected ones are added here after the run.
 
 ## 7. AGENT-DEV / AGENT-TEST
 
+**v1 (P2, 2026-09-30; original):**
 - The graph's nodes are accounts that have TEST alerts.
 - Two accounts are joined if they share a pattern attempt (any date) or are the two sides of an unattributed laundering transaction in TEST.
 - Each component goes wholly to one group, decided by the keyed hash of the component. The target is 50/50.
-- This is executed in `src/eval`. The agent side receives only `agent_dev_alert_ids.parquet`.
+- This is executed in `src/eval`. The agent side received `runtime/agent_dev_alert_ids.parquet`.
+
+**Why v2 (independent review, 2026-10-05):**
+- **(b), a real violation:** v1 took attempt membership from laundering legs cut to the usable span (D1). A member whose legs fall only in the tail (≥ 09-17) was not linked, so one attempt could sit in both groups, and v1's own disjointness check could not see it because it used the same cut legs. The frozen method says "any date"; the code did not do that.
+- **(a):** two TEST-alerted accounts whose attempts meet only at a hub *without* a TEST alert could land in different groups.
+- **(c):** unattributed laundering links outside TEST were ignored.
+- **C-2, the dev-ID file leaked truth:** the hash key is public, so an account whose group differs from the group it would get on its own must be in a multi-account component, i.e. linked to laundering. The runtime store could therefore reveal about 118 laundering-linked TEST accounts (estimate).
+
+**v2 (approved by Dani 2026-10-05; `configs/p2_agent_split_v2.yaml`, declared before the rebuild; `src/eval/group_split.py`):**
+- Memberships come from the whole raw file: the patterns file for attempts (every date, tail included) and every laundering transaction in no pattern.
+- Three graphs: **A** = v1 done correctly (fixes b); **B** = A + unattributed links of any date (fixes b, c); **C** = every laundering-linked account is a node, so hubs without a TEST alert still join their partners (fixes a, b, c).
+- Selection rule, declared before the run: take the first of C, B, A whose largest component holds ≤ 20% of TEST positives and whose groups each hold ≥ 150 positives. If none passes, nothing is written and the run stops for Dani.
+- Same hash key and fraction as v1, so a component with the same members keeps its v1 group.
+- The disjointness check now runs on the full memberships and raises if any attempt has TEST-alerted members in both groups.
+- The AGENT-DEV id list moves to `devtools/agent_dev_alert_ids.parquet`, which runtime code cannot read (§11). The v1 assignment is kept in `archive/agent_split_p2v1.parquet`.
 
 ## 8. Synthetic KYC (task 6), KYC v2
 
@@ -231,12 +255,23 @@ Probability that the analyst confirms the alert:
 - The inputs are ground truth, observable alert features and seeded noise. The generator never uses model scores (H4 circularity).
 - Realised error rates, overall and per group, are in `build.dispositions`.
 
+**Notes from the independent review (2026-10-05; the frozen config is not edited):**
+- **Effective sensitivity (review m-2).** 83.5% of laundering alerts are "hard" (shapeless), so the effective sensitivity is set mostly by 0.70, not 0.85. The YAML comment "15% of laundering alerts closed wrongly" is wrong in effect: the realised false-negative rate is 25.5% (§13), which the frozen error model reproduces exactly when weighted by the hard share and the number of rules.
+- **`closed_at` can fall inside TEST (review m-2).** Up to 168 h after a CALIBRATION alert (e.g. about 88% of confirmed dispositions of the last CALIBRATION day). This is allowed, but every consumer must filter `closed_at < as_of`. The one loader for this is `src/data/stores.py → dispositions_visible(as_of)`; P3 graph features, P10 network tools and P12 memory must use it.
+- **Anchoring counts R01 + R02 as two rules (review m-3)**, although R01 ⊂ R02 by construction (§5). The 2-rule and 3+-rule strata are therefore partly an artefact; reported, not changed.
+- The frozen rates are now pinned cell by cell by `tests/test_p3_review_regressions.py` (review M-7).
+
 ## 11. Stores
 
 **Agent side** (`data/p2/HI-Medium/runtime/`), allow-listed columns:
 - `alerts.parquet`
 - `kyc.parquet`
 - `dispositions.parquet`
+- (`agent_dev_alert_ids.parquet` until 2026-10-05; moved to the devtools store, see below)
+
+Runtime code reaches these only through `src/data/stores.py` (allow-list; refuses anything else). `tests/test_eval_isolation.py` scans every non-evaluation file (all of `src/` except `src/eval`, `scripts/` except `scripts/p2` and `scripts/audit`, and notebooks) for imports of the evaluation code, dynamic imports, and evaluation/devtools paths or label column names.
+
+**Devtools side** (`…/devtools/`, P6/P8 development tooling only; never the runtime):
 - `agent_dev_alert_ids.parquet`
 
 **Evaluation side** (`…/eval/`):
@@ -248,4 +283,54 @@ Probability that the analyst confirms the alert:
 
 Regeneration with the same seed is byte-identical: `run_p2 all --verify`, and `test_regeneration_is_byte_identical` on the fixture.
 
-`--verify` compares every data file and the FX table byte for byte. The thresholds file is compared on everything calibration produced (method, τ, thresholds, actions, calibration period). Its `inputs_sha256` block records the config files **as they were at calibration time**, so it is reported as a note, never as a hidden pass. Why: the first real verify (2026-09-30) failed on exactly this block. `p2_split.yaml` had gained `accepted_deviations` (documentation only, no boundary change) after calibration, and freezing the split will change it again. The original thresholds file is kept unchanged, because its hash is the one every build recorded before TEST counts were computed.
+`--verify` compares every data file (runtime, eval, devtools) and the FX table byte for byte, and (from 2026-10-05, review m-6) every value of the results JSON against the committed one, plus the committed store fingerprints against the files on disk. The thresholds file is compared on everything calibration produced (method, τ, thresholds, actions, calibration period). Its `inputs_sha256` block records the config files **as they were at calibration time**, so it is reported as a note, never as a hidden pass. Why: the first real verify (2026-09-30) failed on exactly this block. `p2_split.yaml` had gained `accepted_deviations` (documentation only, no boundary change) after calibration, and freezing the split will change it again. The original thresholds file is kept unchanged, because its hash is the one every build recorded before TEST counts were computed.
+
+## 12. Independent review of P2 (P3 task 0, 2026-10-05)
+
+A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fixture tests and mutation tests. It touched no real data and no TEST row. Findings and status (decisions by Dani, 2026-10-05):
+
+| id | finding | status |
+|---|---|---|
+| C-1 | Identity guard gate is biased (prevalence scaling) and has no power with 28 seen positives | v2 rule proposed; awaiting Dani's approval (thresholds are frozen) |
+| C-2 | AGENT-DEV id list in the runtime store leaks truth | fixed: moved to devtools store (§7, §11) |
+| M-1 | Isolation test scanned 6 packages only; dynamic imports and path reads not caught | fixed: whole repo outside eval/generators, notebooks, dynamic loading, path literals |
+| M-2 | KYC test could not detect use of post-burn-in data | fixed: perturbation test + control |
+| M-3 | Facts test never opened this doc | fixed: every measured number here is rendered from the JSON and asserted |
+| M-4 | Revision 2 used a VALIDATION aggregate | documented (§5), logged as exposure |
+| M-5 | Git cannot prove the thresholds file preceded TEST counts | documented; exposure log from now on (`docs/holdout_exposure_log.md`) |
+| M-6 | Split graph gaps (a)(b)(c) | fixed in code (§7); rebuild on real data pending |
+| M-7 | Disposition error model not pinned by tests | fixed: known-answer test per cell |
+| M-8 | Timezone handling untested at day boundaries | fixed: 23:59 / 00:00 / tail fixture |
+| M-9 | FX "TRAIN only" test could not detect a widened window | fixed |
+| m-1 | FX residual 0.0125 | cause found; documented below; table not re-fitted (frozen) |
+| m-2, m-3 | Disposition comment, `closed_at` in TEST, R01 ⊂ R02 | documented (§5, §10); `dispositions_visible` loader |
+| m-4 | Frozen `FORBIDDEN_FIELDS` missed eval-store columns | contracts v1.1.0 |
+| m-5 | Guard clears groups that hurt unseen accounts | part of C-1 |
+| m-6 | `--verify` ignored the results JSON | fixed (§11) |
+| m-7, m-8 | Wrong drop reason, stale text, silent skip, missing actuals | fixed (§5, facts test fails instead of skipping) |
+| m-9 | Stale caches reused without a check | fixed: semantic cache key; mismatch stops the run |
+| m-10 | Stores sorted by account_key / row_id | P3 rule: never `head()`, slice or split a store unshuffled; order by keyed hash first |
+
+**FX residual (m-1).** The 0.0125 maximum comes from fiat → Bitcoin pairs whose received BTC amount is coarsely rounded (worst: Euro → Bitcoin, median rate exactly 1.0e-4). The largest non-Bitcoin residual is about 3e-4. Effect: the fitted Bitcoin rate is about 0.125% below the direct rate. This is immaterial for the USD rule floors and R07, and the table is frozen, so it is documented, not re-fitted. Diagnosed from P1's committed pre-holdout aggregates; the TRAIN-only confirmation is `fx_residual_diagnostic.py` (owner run pending).
+
+**Bank IDs with two zero-paddings (P1 open item).** The P1 audit has the same number of (bank, account) keys before and after stripping zeros (2,077,023), so the 61 bank IDs share no account number: no account is split into two keys, and there is no effect on alerts, fan-in counts, KYC or the agent split. It matters only for future bank-level features.
+
+**Still open:** label generosity (an alert is true if the account touched any laundering that day, even if the fired rule's statistic is unrelated) is measured by `label_generosity_train_val.py` (owner run pending, TRAIN/VALIDATION only).
+
+## 13. Measured summary (final build, asserted by `tests/test_p2_results_facts.py`)
+
+Alert layer (alert level; recall against positive account-days):
+
+| Period | Alerts | True alerts | Precision | Recall |
+|---|---|---|---|---|
+| TRAIN | 20,654 | 721 | 3.49% | 7.2% |
+| VALIDATION | 4,158 | 213 | 5.12% | 6.2% |
+| CALIBRATION | 12,564 | 616 | 4.90% | 6.2% |
+
+- R04 fan-in: 577 of 721 TRAIN true alerts, precision 5.4%
+- R04 true alerts that only R04 fired: 556
+- R03 structuring: TRAIN precision 23.0%, recall 0.6%
+- R01 large single txn: 0 alerts that only R01 fired
+- FX: 199 currency pairs on TRAIN, max |log residual| 0.0125
+- Dispositions: 37,376 pre-TEST alerts, accuracy 96.6%, false-negative rate 25.5% (TRAIN 25.5% / VALIDATION 20.7% / CALIBRATION 27.3%), false-positive rate 2.5%
+- Disposition detail: hard (shapeless) laundering FN 28.4% vs easy 10.9%; by number of rules 1 / 2 / 3+: FN 28.6% / 11.9% / 8.6%, FP 2.1% / 3.4% / 5.9%; confirmed_suspicious precision 56.5%; median delay 47.65 h (confirmed) / 18.05 h (closed)

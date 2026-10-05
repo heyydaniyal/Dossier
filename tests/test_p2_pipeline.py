@@ -27,7 +27,6 @@ RUNTIME_SCHEMAS = {
     "alerts.parquet": ALERT_COLUMNS,
     "kyc.parquet": KYC_COLUMNS,
     "dispositions.parquet": ["alert_id", "account_key", "disposition", "closed_at"],
-    "agent_dev_alert_ids.parquet": ["alert_id"],
 }
 TRUTHY = {
     "typology",
@@ -168,8 +167,10 @@ def test_group_split_covers_test_only_and_is_disjoint(p2_run):
     test_ids = set(a.filter(pl.col("period") == "TEST")["alert_id"])
     assert set(s["alert_id"]) == test_ids
     assert s.group_by("account_key").agg(pl.col("agent_group").n_unique())["agent_group"].max() == 1
+    # review C-2: the AGENT-DEV id list lives in the devtools store, never in the runtime store
+    assert not (p2_run["base"] / "runtime" / "agent_dev_alert_ids.parquet").exists()
     dev = set(
-        pl.read_parquet(p2_run["base"] / "runtime" / "agent_dev_alert_ids.parquet")["alert_id"]
+        pl.read_parquet(p2_run["base"] / "devtools" / "agent_dev_alert_ids.parquet")["alert_id"]
     )
     assert dev == set(s.filter(pl.col("agent_group") == "AGENT-DEV")["alert_id"])
 
@@ -257,6 +258,7 @@ def _hashes(r) -> dict:
     files = [
         *r["base"].joinpath("runtime").glob("*.parquet"),
         *r["base"].joinpath("eval").glob("*.parquet"),
+        *r["base"].joinpath("devtools").glob("*.parquet"),
         *r["configs"].glob("*.yaml"),
     ]
     return {f"{f.parent.name}/{f.name}": hashlib.sha256(f.read_bytes()).hexdigest() for f in files}
@@ -264,7 +266,7 @@ def _hashes(r) -> dict:
 
 def test_regeneration_is_byte_identical(p2_run, p2_run_again):
     h1, h2 = _hashes(p2_run), _hashes(p2_run_again)
-    assert len(h1) == 11  # 4 runtime + 5 eval stores + 2 configs
+    assert len(h1) == 11  # 3 runtime + 5 eval + 1 devtools store + 2 configs
     assert h1 == h2
     d1 = {k: v for k, v in p2_run["doc"].items() if k != "run_info"}
     d2 = {k: v for k, v in p2_run_again["doc"].items() if k != "run_info"}

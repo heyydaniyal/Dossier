@@ -1,5 +1,12 @@
 # Contracts changelog
 
+## v1.1.0 — 2026-10-05 — FROZEN (additive, stricter)
+Independent P2 review, finding m-4 (P3 task 0; approved by Dani 2026-10-05).
+- `FORBIDDEN_FIELDS` gains the truth-derived columns of the P2 evaluation store: `attempt_id`, `attempt_ids`, `has_unattributed`, `n_laundering_txns`, `is_pos`, `planted`, `laundering_account`, `agent_group`. Before, only a test-local list covered them, so the P7 runtime evidence scanner would have let `attempt_ids` through.
+- Deliberately NOT added: `typology`/`typologies` (the Typology agent may name typologies as its own reasoning) and `component` (too generic).
+- No model, field or validator changed. Nothing produced in P2 carries any of these keys in agent-visible payloads.
+- Team announcement: required (Dani to post).
+
 ## v1.0.0 — 2026-09-25 — FROZEN
 Finalised from draft v0 (Master Context). Differences from v0, all deliberate:
 - `GraphQuery.lookback` → `lookback_hours` (float, >0): unit made explicit; `max_hops` bounded 1–3.

@@ -2,8 +2,9 @@
 
 Inputs are ground truth + observable alert features (number of triggered rules, which rules)
 + seeded keyed-hash noise. Never model scores or agent outputs (no import of src.models,
-src.agents, src.tools: checked by tests/test_p2_dispositions.py). Output rows carry exactly the
-HistoricalDisposition fields.
+src.agents, src.tools: checked by
+tests/test_p2_generators.py::test_disposition_generator_never_uses_scores_or_agents).
+Output rows carry exactly the HistoricalDisposition fields.
 """
 
 from __future__ import annotations

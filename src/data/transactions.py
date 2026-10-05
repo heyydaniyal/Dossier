@@ -1,7 +1,8 @@
 """Label-free transaction access for everything that is not the evaluation harness.
 
 The runtime-side loader selects an explicit ALLOW-LIST of columns. The ground-truth column is
-never named in this module (tests/test_p2_firewall.py scans the source for it), so no code that
+never named in this module (tests/test_p2_rules.py::test_rule_and_data_code_never_names_ground_truth
+scans the source for it), so no code that
 imports from here can obtain it by accident.
 """
 

@@ -1,0 +1,44 @@
+# AGENT-DEV / AGENT-TEST split, version 2 (P3 task 0; independent P2 review finding M-6).
+# Approved by Dani 2026-10-05 ("recs ok": fix how the split is built, rebuild once, report
+# original vs corrected, log the TEST exposure). Declared BEFORE the rebuild is run; nothing here
+# may change after `run_p2 split` has printed counts.
+#
+# Unchanged from configs/p2_split.yaml (FROZEN, not edited): hash_key, fraction_agent_test, the
+# feasibility gates, and the rule "AGENT-DEV and AGENT-TEST share no account and no pattern
+# instance". What changes is how the graph is built (src/eval/group_split.py, v2):
+#   memberships come from the WHOLE raw file (patterns file for attempts; every laundering
+#   transaction in no pattern), not from laundering legs cut to the usable span.
+version: 2
+status: DECLARED
+declared_on: "2026-10-05"
+
+# Graphs, from the frozen v1 method done correctly to the most conservative.
+variants:
+  A_attempts_full: >-
+    v1 scope, corrected: nodes = TEST-alerted accounts; joined if they share a pattern attempt
+    (full attempt membership, any date incl. the D1 tail) or are the two sides of an unattributed
+    laundering transaction dated in TEST. Fixes gap (b).
+  B_plus_unattributed_any_date: >-
+    A + unattributed laundering transactions of any date link their two sides. Fixes (b), (c).
+  C_full_laundering_graph: >-
+    every account in any attempt or unattributed laundering transaction is a node (TEST-alerted
+    or not); components are projected onto TEST-alerted accounts, so hubs without a TEST alert
+    still join their partners. Fixes (a), (b), (c).
+
+# Selection rule (deterministic; uses only the pre-declared feasibility gates of p2_split.yaml):
+# take the FIRST variant in this order whose largest component holds <= 20% of TEST positive
+# alerts AND whose two groups each hold >= 150 positive alerts. If none passes, nothing is written
+# and the run stops for Dani's decision.
+preference_order:
+  - C_full_laundering_graph
+  - B_plus_unattributed_any_date
+  - A_attempts_full
+
+# Where the outputs go. The AGENT-DEV id list leaves the runtime store (review finding C-2): its
+# membership is truth-derived (components come from laundering links), so the agent runtime must
+# not be able to read it. Only P6/P8 development tooling reads the devtools store.
+outputs:
+  eval_split: eval/agent_split.parquet
+  devtools_dev_ids: devtools/agent_dev_alert_ids.parquet
+  removed_from_runtime: runtime/agent_dev_alert_ids.parquet
+  archive_v1: archive/agent_split_p2v1.parquet   # original P2 assignment, for the record

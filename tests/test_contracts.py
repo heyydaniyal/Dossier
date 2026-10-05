@@ -49,7 +49,7 @@ def _ev(eid="E1", payload=None):
 
 
 def test_frozen_v1_marker():
-    assert C.CONTRACTS_STATUS == "FROZEN" and C.CONTRACTS_VERSION == "1.0.0"
+    assert C.CONTRACTS_STATUS == "FROZEN" and C.CONTRACTS_VERSION == "1.1.0"
 
 
 def test_alert_valid():

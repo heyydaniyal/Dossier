@@ -1,6 +1,6 @@
 """Dossier interface contracts.
 
-STATUS: FROZEN v1 (2026-09-25).
+STATUS: FROZEN v1 (2026-09-25); v1.1.0 (2026-10-05) only widens FORBIDDEN_FIELDS (see changelog).
 Any change must: bump CONTRACTS_VERSION, add a dated entry to docs/CONTRACTS_CHANGELOG.md,
 be announced to the whole team, and be logged in PROJECT_STATE.md.
 
@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTRACTS_VERSION = "1.0.0"
+CONTRACTS_VERSION = "1.1.0"
 CONTRACTS_STATUS = "FROZEN"
 CONTRACTS_FROZEN_ON = "2026-09-25"
 
@@ -38,6 +38,17 @@ FORBIDDEN_FIELDS: frozenset[str] = frozenset(
         "gt_typology",
         "ground_truth",
         "label_definition_id",
+        # v1.1.0 (2026-10-05, independent P2 review m-4): truth-derived columns of the P2
+        # evaluation store. "typology"/"typologies" stay ALLOWED: the Typology agent's own
+        # reasoning may use them (agent output, not ground truth; project instructions).
+        "attempt_id",
+        "attempt_ids",
+        "has_unattributed",
+        "n_laundering_txns",
+        "is_pos",
+        "planted",
+        "laundering_account",
+        "agent_group",
     }
 )
 

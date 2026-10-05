@@ -1,7 +1,13 @@
-"""P2 facts on the REAL data (HI-Medium): every claim in docs/P2_ALERT_LAYER.md is checked against
-docs/p2/p2_results.json, produced by `uv run python -m scripts.p2.run_p2` on Dani's laptop.
+"""P2 facts on the REAL data (HI-Medium), checked against docs/p2/p2_results.json (produced by
+`uv run python -m scripts.p2.run_p2` on Dani's laptop).
 
-Skipped until that file exists. Once it exists, a failure here means a P2 gate is not met.
+Two kinds of check:
+  - gates and invariants (precision band, ceilings, deviations recorded with exact values);
+  - DOC_FACTS: every measured number stated in docs/P2_ALERT_LAYER.md is rendered from the JSON
+    and must appear verbatim in the doc (review finding M-3, P3 task 0: the P2 version of this
+    file never opened the doc). Changing a number in either place fails the test.
+
+P2 is closed, so a missing results file is a FAILURE, not a skip (review m-7).
 """
 
 from __future__ import annotations
@@ -18,12 +24,16 @@ from src.data.kyc import KYC_COLUMNS
 
 ROOT = Path(__file__).resolve().parents[1]
 RES_PATH = ROOT / "docs" / "p2" / "p2_results.json"
+DOC_PATH = ROOT / "docs" / "P2_ALERT_LAYER.md"
 RES = json.loads(RES_PATH.read_text(encoding="utf-8")) if RES_PATH.is_file() else {}
-# skipped until the full run (calibrate + build) has produced the results file
-pytestmark = pytest.mark.skipif("build" not in RES, reason="P2 build results not produced yet")
 RULES = yaml.safe_load((ROOT / "configs" / "p2_rules.yaml").read_text(encoding="utf-8"))
 KYC = yaml.safe_load((ROOT / "configs" / "p2_kyc.yaml").read_text(encoding="utf-8"))
 DISP = yaml.safe_load((ROOT / "configs" / "p2_dispositions.yaml").read_text(encoding="utf-8"))
+
+
+def test_results_file_exists_and_has_a_build():
+    assert RES_PATH.is_file(), "docs/p2/p2_results.json is missing (P2 is closed: never skip)"
+    assert "build" in RES
 
 
 def test_results_are_for_the_primary_variant_and_complete():
@@ -97,12 +107,8 @@ def test_kyc_leakage_within_ceilings_or_documented_with_guard():
         un = k["leakage_unseen_accounts_report_only"]
         assert KYC["identity_guard"]["required_unseen_check_pass"]
         assert un["status"] == "measured" and un["all_pass"], un.get("checks")
-        assert k["identity_guard"]["verdict"] in (
-            "pass",
-            "account_recognition",
-            "no_material_gain",
-            "insufficient_data",
-        )
+        # pinned (review M-3): the docs and the "KYC is not a model feature" decision rest on it
+        assert k["identity_guard"]["verdict"] == "account_recognition"
 
 
 def test_identity_guard_recorded_with_declared_thresholds():
@@ -143,3 +149,229 @@ def test_runtime_store_schemas():
         "disposition",
         "closed_at",
     ]
+
+
+# ---------------------------------------------------------------- doc claims vs JSON (M-3)
+
+
+def _get(path: str):
+    """JSON value at a dotted path. 'build.feasibility_doc_basis' = the ORIGINAL P2 build counts
+    (the doc's §6 line describes the 2026-09-30 build): after the P3 split rebuild these live in
+    build.feasibility_p2v1_original, before it in build.feasibility."""
+    b = RES["build"]
+    alias = (b.get("feasibility_p2v1_original") or b["feasibility"])["counts"]
+    o = RES
+    for i, part in enumerate(path.split(".")):
+        if i == 1 and path.startswith("build.feasibility_doc_basis."):
+            o = alias
+            continue
+        o = o[part]
+    return o
+
+
+def _minus(x: str) -> str:
+    return x.replace("-", "\u2212")  # the doc uses the typographic minus
+
+
+FMT = {
+    "int": lambda v: f"{v:,}",
+    "pct1": lambda v: f"{100 * v:.1f}%",
+    "pct2": lambda v: f"{100 * v:.2f}%",
+    "f2": lambda v: _minus(f"{v:.2f}"),
+    "sf2": lambda v: _minus(f"{v:+.2f}"),
+    "f3": lambda v: _minus(f"{v:.3f}"),
+    "f4": lambda v: _minus(f"{v:.4f}"),
+    "h2": lambda v: f"{v:.2f} h",
+    "str": str,
+}
+B = "build."
+FE = B + "feasibility.counts."
+KL = B + "kyc.leakage.checks."
+KU = B + "kyc.leakage_unseen_accounts_report_only.checks."
+KG = B + "kyc.identity_guard."
+KP = B + "kyc.planting."
+RM = B + "rule_metrics."
+DI = B + "dispositions."
+# (template with one {} per value, [(json path, format)]) -- each rendered line must be in the doc
+DOC_FACTS = [
+    (
+        "TRAIN has **{}** positive alerts against a gate of 1,000",
+        [(FE + "TRAIN.n_positive_alerts", "int")],
+    ),
+    (
+        "positive alerts TRAIN {}, VALIDATION {}, CALIBRATION {}, TEST {} (AGENT-DEV {}, "
+        "AGENT-TEST {}); largest TEST component {} of TEST positives; regime B {} positives",
+        [
+            (FE + "TRAIN.n_positive_alerts", "int"),
+            (FE + "VALIDATION.n_positive_alerts", "int"),
+            (FE + "CALIBRATION.n_positive_alerts", "int"),
+            (FE + "TEST.n_positive_alerts", "int"),
+            (B + "feasibility_doc_basis.TEST_agent_groups.AGENT-DEV.n_positive_alerts", "int"),
+            (B + "feasibility_doc_basis.TEST_agent_groups.AGENT-TEST.n_positive_alerts", "int"),
+            (
+                B + "feasibility_doc_basis.TEST_components."
+                "largest_component_share_of_positive_alerts",
+                "pct2",
+            ),
+            (FE + "TEST_regime_B_unseen_accounts.n_positive_alerts", "int"),
+        ],
+    ),
+    (
+        "| C1 KYC-only | {} × prev ✗ (ceiling 2.0) | {} × prev ✓ |",
+        [(KL + "C1_kyc_only.value_over_prev", "f2"), (KU + "C1_kyc_only.value_over_prev", "f2")],
+    ),
+    (
+        "| C2 synthetic increment | {} × prev ✗ (ceiling 0.25) | {} × prev ✓ |",
+        [
+            (KL + "C2_synthetic_increment.value_over_prev", "f2"),
+            (KU + "C2_synthetic_increment.value_over_prev", "f2"),
+        ],
+    ),
+    (
+        "| C3 txn + KYC \u2212 txn | {} × prev ✓ | {} × prev ✓ |",
+        [
+            (KL + "C3_txn_plus_kyc_increment.value_over_prev", "f2"),
+            (KU + "C3_txn_plus_kyc_increment.value_over_prev", "f2"),
+        ],
+    ),
+    (
+        "| C4 synthetic interaction | {} × prev ✓ | {} × prev ✓ |",
+        [
+            (KL + "C4_txn_synthetic_increment.value_over_prev", "f2"),
+            (KU + "C4_txn_synthetic_increment.value_over_prev", "f2"),
+        ],
+    ),
+    (
+        "PR-AUC ({} → {} on all VALIDATION)",
+        [(B + "kyc.leakage.pr_auc.txn", "f3"), (B + "kyc.leakage.pr_auc.txn_kyc_all", "f3")],
+    ),
+    (
+        "seen accounts ({} alerts, {} positives) gain {} × prev; unseen accounts ({} alerts, "
+        "{} positives) gain {} × prev → **`{}`**",
+        [
+            (KG + "seen.n", "int"),
+            (KG + "seen.n_pos", "int"),
+            (KG + "seen.gain_over_prev", "sf2"),
+            (KG + "unseen.n", "int"),
+            (KG + "unseen.n_pos", "int"),
+            (KG + "unseen.gain_over_prev", "sf2"),
+            (KG + "verdict", "str"),
+        ],
+    ),
+    (
+        "({} accounts with a pre-TEST alert; {} accounts planted overall)",
+        [(KP + "n_alerted_accounts", "int"), (KP + "n_planted_all_accounts", "int")],
+    ),
+    (
+        "| | Laundering accounts ({}) | Legitimate accounts ({}) |",
+        [
+            (KP + "n_laundering_alerted_accounts", "int"),
+            (KP + "n_legitimate_alerted_accounts", "int"),
+        ],
+    ),
+    (
+        "| Has an explaining profile | {} | {} |",
+        [(KP + "realised_rate_laundering", "pct1"), (KP + "realised_rate_legitimate", "pct1")],
+    ),
+    (
+        "| Profile explains its own alert's rule | {} | {} |",
+        [
+            (KP + "explains_own_alert_rate_laundering", "pct1"),
+            (KP + "explains_own_alert_rate_legitimate", "pct1"),
+        ],
+    ),
+    # §13 measured summary (added in P3 task 0 so PROJECT_STATE's P2 numbers have a checked source)
+    *[
+        (
+            f"| {per} | {{}} | {{}} | {{}} | {{}} |",
+            [
+                (RM + f"{per}.n_alerts", "int"),
+                (RM + f"{per}.n_true_alerts", "int"),
+                (RM + f"{per}.precision", "pct2"),
+                (RM + f"{per}.recall", "pct1"),
+            ],
+        )
+        for per in ("TRAIN", "VALIDATION", "CALIBRATION")
+    ],
+    (
+        "R04 fan-in: {} of {} TRAIN true alerts, precision {}",
+        [
+            (RM + "TRAIN.per_rule.R04_FAN_IN.n_true", "int"),
+            (RM + "TRAIN.n_true_alerts", "int"),
+            (RM + "TRAIN.per_rule.R04_FAN_IN.precision", "pct1"),
+        ],
+    ),
+    (
+        "R03 structuring: TRAIN precision {}, recall {}",
+        [
+            (RM + "TRAIN.per_rule.R03_STRUCTURING.precision", "pct1"),
+            (RM + "TRAIN.per_rule.R03_STRUCTURING.recall", "pct1"),
+        ],
+    ),
+    (
+        "R01 large single txn: {} alerts that only R01 fired",
+        [(RM + "TRAIN.per_rule.R01_LARGE_SINGLE_TXN.n_alerts_only_this_rule", "int")],
+    ),
+    (
+        "R04 true alerts that only R04 fired: {}",
+        [(RM + "TRAIN.per_rule.R04_FAN_IN.n_true_only_this_rule", "int")],
+    ),
+    (
+        "FX: {} currency pairs on TRAIN, max |log residual| {}",
+        [("stats.fx.n_pairs", "int"), ("stats.fx.max_abs_log_residual", "f4")],
+    ),
+    (
+        "Dispositions: {} pre-TEST alerts, accuracy {}, false-negative rate {} (TRAIN {} / "
+        "VALIDATION {} / CALIBRATION {}), false-positive rate {}",
+        [
+            (DI + "n", "int"),
+            (DI + "overall.accuracy", "pct1"),
+            (DI + "overall.false_negative_rate", "pct1"),
+            (DI + "by_period.TRAIN.false_negative_rate", "pct1"),
+            (DI + "by_period.VALIDATION.false_negative_rate", "pct1"),
+            (DI + "by_period.CALIBRATION.false_negative_rate", "pct1"),
+            (DI + "overall.false_positive_rate", "pct1"),
+        ],
+    ),
+    (
+        "hard (shapeless) laundering FN {} vs easy {}; by number of rules 1 / 2 / 3+: FN {} / {} / "
+        "{}, FP {} / {} / {}; confirmed_suspicious precision {}; median delay {} (confirmed) / "
+        "{} (closed)",
+        [
+            (DI + "hard_H1_shapeless_laundering.false_negative_rate", "pct1"),
+            (DI + "easy_laundering.false_negative_rate", "pct1"),
+            (DI + "by_n_rules.1.false_negative_rate", "pct1"),
+            (DI + "by_n_rules.2.false_negative_rate", "pct1"),
+            (DI + "by_n_rules.3+.false_negative_rate", "pct1"),
+            (DI + "by_n_rules.1.false_positive_rate", "pct1"),
+            (DI + "by_n_rules.2.false_positive_rate", "pct1"),
+            (DI + "by_n_rules.3+.false_positive_rate", "pct1"),
+            (DI + "confirmed_precision", "pct1"),
+            (DI + "delay_hours_median.confirmed_suspicious", "h2"),
+            (DI + "delay_hours_median.closed_legitimate", "h2"),
+        ],
+    ),
+]
+
+
+@pytest.mark.parametrize("template,paths", DOC_FACTS, ids=lambda x: str(x)[:40])
+def test_doc_numbers_match_results_json(template, paths):
+    doc = DOC_PATH.read_text(encoding="utf-8")
+    rendered = template.format(*(FMT[f](_get(p)) for p, f in paths))
+    assert rendered in doc, f"not in docs/P2_ALERT_LAYER.md: {rendered!r}"
+
+
+def test_doc_revision2_actuals_are_derived_from_the_json():
+    """§5 correction (review m-8): derived counts, rendered from the JSON."""
+    tr = RES["build"]["rule_metrics"]["TRAIN"]
+    r04 = tr["per_rule"]["R04_FAN_IN"]
+    other = tr["n_true_alerts"] - r04["n_true_only_this_rule"]  # >= 1 rule other than R04
+    no_r04 = tr["n_true_alerts"] - r04["n_true"]
+    days = RES["build"]["feasibility"]["counts"]["TRAIN"]["n_days"]
+    val = RES["build"]["rule_metrics"]["VALIDATION"]["n_true_alerts"]
+    s = (
+        f"{other} TRAIN true alerts carry at least one rule other than R04 "
+        f"({other / days:.0f}/day) and {no_r04} carry no R04 at all "
+        f"({no_r04 / days:.0f}/day); VALIDATION has {val} true alerts"
+    )
+    assert s in DOC_PATH.read_text(encoding="utf-8"), s
