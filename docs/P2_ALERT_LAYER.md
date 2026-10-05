@@ -318,7 +318,7 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 | M-7 | Disposition error model not pinned by tests | fixed: known-answer test per cell |
 | M-8 | Timezone handling untested at day boundaries | fixed: 23:59 / 00:00 / tail fixture |
 | M-9 | FX "TRAIN only" test could not detect a widened window | fixed |
-| m-1 | FX residual 0.0125 | cause found; documented below; table not re-fitted (frozen) |
+| m-1 | FX residual 0.0125 | cause confirmed on TRAIN (Bitcoin 0.13% low); documented below; table not re-fitted (frozen) |
 | m-2, m-3 | Disposition comment, `closed_at` in TEST, R01 ⊂ R02 | documented (§5, §10); `dispositions_visible` loader |
 | m-4 | Frozen `FORBIDDEN_FIELDS` missed eval-store columns | contracts v1.1.0 |
 | m-5 | Guard clears groups that hurt unseen accounts | fixed in guard v2 (`harms_unseen`, not cleared) |
@@ -331,11 +331,29 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 
 The TRAIN/VALIDATION-only diagnostic scripts of the review are in `scripts/p2/review/` (run from the repo root; each refuses to load a row from 2022-09-08 or later): `label_generosity_train_val.py`, `fx_residual_diagnostic.py`, `bank_padding_diagnostic.py`, `rb_check_train_val.py`, `fold_counts_train_val.py`.
 
-**FX residual (m-1).** The 0.0125 maximum comes from fiat → Bitcoin pairs whose received BTC amount is coarsely rounded (worst: Euro → Bitcoin, median rate exactly 1.0e-4). The largest non-Bitcoin residual is about 3e-4. Effect: the fitted Bitcoin rate is about 0.125% below the direct rate. This is immaterial for the USD rule floors and R07, and the table is frozen, so it is documented, not re-fitted. Diagnosed from P1's committed pre-holdout aggregates; the TRAIN-only confirmation is `scripts/p2/review/fx_residual_diagnostic.py` (owner run pending).
+**Review diagnostics on the real data (TRAIN/VALIDATION only; run on Dani's laptop 2026-10-05; outputs in `docs/p2/review/`, aggregates only).**
 
-**Bank IDs with two zero-paddings (P1 open item).** The P1 audit has the same number of (bank, account) keys before and after stripping zeros (2,077,023), so the 61 bank IDs share no account number: no account is split into two keys, and there is no effect on alerts, fan-in counts, KYC or the agent split. It matters only for future bank-level features.
+*Label generosity (10a), `label_generosity_train_val.json`.* For each true alert, does the statistic of the rule that fired actually involve the laundering transactions? "Coincidental" = the rule still fires on the same account-day when all laundering transactions are removed.
 
-**Still open:** label generosity (an alert is true if the account touched any laundering that day, even if the fired rule's statistic is unrelated) is measured by `scripts/p2/review/label_generosity_train_val.py` (owner run pending, TRAIN/VALIDATION only).
+| Rule | TRAIN true alerts | involves laundering | coincidental | VALIDATION true alerts | coincidental |
+|---|---|---|---|---|---|
+| R01 large single txn | 86 | 52.33% | 48.84% | 37 | 29.73% |
+| R02 peer volume | 142 | 100.0% | 50.7% | 48 | 37.5% |
+| R03 structuring | 62 | 12.9% | 96.77% | 15 | 100.0% |
+| R04 fan-in | 577 | 96.19% | 77.99% | 161 | 65.84% |
+| R05 fan-out | 75 | 92.0% | 90.67% | 18 | 83.33% |
+| R07 high-risk channel | 72 | 55.56% | 100.0% | 17 | 100.0% |
+
+- **Layer: 71.57% of TRAIN true alerts (VALIDATION 58.69%) would be raised even without their laundering transactions.** The rules mostly fire on accounts that are busy anyway (hubs with many counterparties), and those accounts also happen to take part in laundering that day: for fan-in, the laundering senders are a median 12.5% of the distinct senders. Only 2.36% (TRAIN) / 0.94% (VALIDATION) of true alerts have no fired statistic touching laundering at all.
+- **What this means (assessment; the label P2-v1 is FROZEN and stays):** P2-v1 answers "was this account involved in laundering on this day?", which is the analyst's question for an alerted account-day, so it remains the right primary label. But a "true positive" alert usually does *not* mean the rule detected the laundering. Consequences: (1) rule-layer precision is mostly coincidence and must be described that way in the report; (2) P7 evidence tools must show the account's whole day, not only the transactions behind the fired rule — the laundering is often elsewhere in the day; (3) P6 should report results separately for rule-attributable and coincidental true positives (secondary stratum; the per-alert flag can be computed eval-side with this script's logic); (4) R03 and R07 true alerts are almost entirely coincidental.
+
+*Identity guard v2 fold sizes, `fold_counts_train_val.txt`.* Seen / unseen positives per fold: F1 16 / 154, F2 24 / 174, F3 28 / 185 → **pooled 68 seen and 513 unseen positives, above N_min = 30: guard v2 is usable.** 1,645 accounts appear on two or more evaluated days (3,608 alerts, 67 positives), which confirms that resampling by account (not by alert) is needed.
+
+*Hard-case share and v1 guard on KYC, `rb_check_train_val.txt`.* 86.4% of TRAIN+VALIDATION positive alerts are "hard" (shapeless) for the disposition model (§10). KYC under the v1 guard, with bootstrap CIs: seen gain/prev 95% CI [−0.22, 2.58] (includes 0: the seen "gain" behind `account_recognition` was noise), unseen [−0.85, −0.06] (entirely below 0: KYC hurts new accounts). The KYC exclusion therefore stands on firmer ground than the v1 verdict (v2 would say `harms_unseen`). Honest note: a pure-noise feature group on the real data got `no_material_gain` in 20 of 20 seeds under v1 (noise lowered the seen AP), so v1's ~50% false `account_recognition` from the simulation did not show up here; v1 is replaced for its prevalence-scaling bias and lack of CIs, which are mathematical, not for this case.
+
+*FX residual (m-1), `fx_residual_diagnostic.txt`.* Confirmed on TRAIN: the committed table equals a re-fit exactly; the maximum residual (0.0125) is the Euro → Bitcoin pair (213 rows; half of received BTC amounts carry one significant digit). Re-fitting without fiat → Bitcoin pairs moves Bitcoin from 11,866.19 to 11,881.37 USD (+0.128%) and every other currency by at most 5.5e-5. Bitcoin is valued 0.13% low in the frozen table; immaterial for the USD floors and R07. Documented, not re-fitted.
+
+*Bank IDs with two zero-paddings (P1 open item), `bank_padding_diagnostic.txt`.* 36 of the 61 collided bank IDs occur in TRAIN/VALIDATION. Both spellings always map to the same bank name, but no account number appears under both: 1,517,275 (bank, account) keys before and after stripping zeros. No double alerts, no cross-spelling self-transfers, no shrunk fan-in. **Closed: no effect on P2.** Generator artefact noted: the rarer spelling usually holds a few dozen accounts with one outgoing and no incoming transaction; bank ID values are never features (D5), so nothing to do.
 
 ## 13. Measured summary (final build, asserted by `tests/test_p2_results_facts.py`)
 

@@ -18,10 +18,15 @@ Run from the repo root:
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
+
+# Windows writes piped output as cp1252, which cannot encode polars table borders
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 CUTOFF = datetime(2022, 9, 8, tzinfo=UTC)
 PERIODS = ["TRAIN", "VALIDATION"]

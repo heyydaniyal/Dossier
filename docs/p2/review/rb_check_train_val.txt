@@ -1,0 +1,62 @@
+1. positive alerts by hard-class category (TRAIN+VALIDATION)
+shape: (12, 4)
+┌────────────┬────────┬───────────────────┬─────┐
+│ period     ┆ fan_in ┆ cat               ┆ len │
+│ ---        ┆ ---    ┆ ---               ┆ --- │
+│ str        ┆ bool   ┆ str               ┆ u32 │
+╞════════════╪════════╪═══════════════════╪═════╡
+│ TRAIN      ┆ false  ┆ easy              ┆ 48  │
+│ TRAIN      ┆ false  ┆ random_bipartite  ┆ 20  │
+│ TRAIN      ┆ false  ┆ unattributed_only ┆ 76  │
+│ TRAIN      ┆ true   ┆ easy              ┆ 27  │
+│ TRAIN      ┆ true   ┆ random_bipartite  ┆ 4   │
+│ …          ┆ …      ┆ …                 ┆ …   │
+│ VALIDATION ┆ false  ┆ random_bipartite  ┆ 5   │
+│ VALIDATION ┆ false  ┆ unattributed_only ┆ 28  │
+│ VALIDATION ┆ true   ┆ easy              ┆ 33  │
+│ VALIDATION ┆ true   ┆ random_bipartite  ┆ 1   │
+│ VALIDATION ┆ true   ┆ unattributed_only ┆ 127 │
+└────────────┴────────┴───────────────────┴─────┘
+   share hard: 0.864 n_pos: 934
+2. laundering legs with attempt_id (TRAIN+VALIDATION windows): 0.5597 of 20586
+shape: (9, 2)
+┌────────────────┬──────┐
+│ typology       ┆ len  │
+│ ---            ┆ ---  │
+│ str            ┆ u32  │
+╞════════════════╪══════╡
+│ null           ┆ 9064 │
+│ STACK          ┆ 2206 │
+│ SCATTER-GATHER ┆ 2078 │
+│ BIPARTITE      ┆ 1460 │
+│ CYCLE          ┆ 1266 │
+│ FAN-OUT        ┆ 1266 │
+│ GATHER-SCATTER ┆ 1166 │
+│ FAN-IN         ┆ 1160 │
+│ RANDOM         ┆ 920  │
+└────────────────┴──────┘
+3. KYC guard point estimate: account_recognition {'seen': 0.8573351826, 'unseen': -0.3756391959}
+   seen gain/prev 95% CI [-0.224, 2.580]  (n_boot 2000)
+   unseen gain/prev 95% CI [-0.854, -0.064]  (n_boot 2000)
+4. guard verdicts for a pure-noise feature group (20 seeds)
+   seed 0: no_material_gain  seen -2.217721813  unseen -0.1407348439
+   seed 1: no_material_gain  seen -0.5929413061  unseen -0.07810723093
+   seed 2: no_material_gain  seen -0.8684057066  unseen -0.06639521211
+   seed 3: no_material_gain  seen -0.521683152  unseen -0.09698601573
+   seed 4: no_material_gain  seen -1.4808976  unseen -0.09781067118
+   seed 5: no_material_gain  seen -1.885912148  unseen -0.1963784074
+   seed 6: no_material_gain  seen -0.5173635563  unseen -0.2796707887
+   seed 7: no_material_gain  seen -2.647213238  unseen -0.09513556107
+   seed 8: no_material_gain  seen -2.44869282  unseen 0.03810058036
+   seed 9: no_material_gain  seen -1.214380978  unseen -0.113644625
+   seed 10: no_material_gain  seen -0.222454324  unseen -0.1908365559
+   seed 11: no_material_gain  seen -0.393831121  unseen -0.146196895
+   seed 12: no_material_gain  seen -2.014326282  unseen -0.05138255178
+   seed 13: no_material_gain  seen -2.452104942  unseen -0.1460147202
+   seed 14: no_material_gain  seen -2.503017828  unseen -0.0964235062
+   seed 15: no_material_gain  seen -1.842811952  unseen 0.03066957086
+   seed 16: no_material_gain  seen -2.082895988  unseen -0.1056109053
+   seed 17: no_material_gain  seen -0.6325291843  unseen 0.02010259873
+   seed 18: no_material_gain  seen -2.250077891  unseen 0.03282901914
+   seed 19: no_material_gain  seen -0.4184456794  unseen -0.2076133813
+   verdict counts: {'no_material_gain': 20}

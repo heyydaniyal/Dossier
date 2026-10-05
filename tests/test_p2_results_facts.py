@@ -446,3 +446,34 @@ def test_agent_split_v2_state_matches_the_exposure_log():
     assert "p2v1_original" in RES and "moved_to_other_group_in_v2" in RES["p2v1_original"]
     assert "runtime/agent_dev_alert_ids.parquet" not in RES["stores"]
     assert "devtools/agent_dev_alert_ids.parquet" in RES["stores"]
+
+
+def test_doc_label_generosity_numbers_match_the_committed_json():
+    """§12 (review 10a): every rule row and the layer figures come from the committed JSON."""
+    lg = json.loads(
+        (ROOT / "docs" / "p2" / "review" / "label_generosity_train_val.json").read_text("utf-8")
+    )
+    doc = DOC_PATH.read_text(encoding="utf-8")
+    tr, va = lg["per_period"]["TRAIN"], lg["per_period"]["VALIDATION"]
+    names = {
+        "R01_LARGE_SINGLE_TXN": "R01 large single txn",
+        "R02_PEER_VOLUME_OUTLIER": "R02 peer volume",
+        "R03_STRUCTURING": "R03 structuring",
+        "R04_FAN_IN": "R04 fan-in",
+        "R05_FAN_OUT": "R05 fan-out",
+        "R07_HIGH_RISK_CHANNEL": "R07 high-risk channel",
+    }
+    for rid, label in names.items():
+        t, v = tr["per_rule"][rid], va["per_rule"][rid]
+        row = (
+            f"| {label} | {t['n_true_alerts_fired']} | {t['pct_statistic_involves_laundering']}% "
+            f"| {t['pct_coincidental_still_fires_without_laundering']}% "
+            f"| {v['n_true_alerts_fired']} "
+            f"| {v['pct_coincidental_still_fires_without_laundering']}% |"
+        )
+        assert row in doc, row
+    assert f"{tr['layer']['pct_coincidental_for_every_fired_rule']}% of TRAIN true alerts" in doc
+    assert f"(VALIDATION {va['layer']['pct_coincidental_for_every_fired_rule']}%)" in doc
+    assert tr["n_true_alerts"] == RES["build"]["rule_metrics"]["TRAIN"]["n_true_alerts"]
+    assert va["n_true_alerts"] == RES["build"]["rule_metrics"]["VALIDATION"]["n_true_alerts"]
+    assert lg["max_transaction_timestamp_loaded"] < "2022-09-08"  # TRAIN/VALIDATION only

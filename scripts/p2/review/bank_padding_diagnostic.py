@@ -27,6 +27,10 @@ from pathlib import Path
 
 import polars as pl
 
+# Windows writes piped output as cp1252, which cannot encode polars table borders
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 ROOT = Path.cwd()
 sys.path.insert(0, str(ROOT))
 from src.data.accounts import norm_bank  # noqa: E402

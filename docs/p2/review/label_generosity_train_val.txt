@@ -1,0 +1,21 @@
+wrote label_generosity_train_val.json  (max txn timestamp loaded: 2022-09-07T23:59:00+00:00)
+
+TRAIN: 721 true alerts (0 with no laundering leg visible to the rules)
+  rule                           n  %involves  %coincid.  share_med
+  R01_LARGE_SINGLE_TXN          86      52.33      48.84           
+  R02_PEER_VOLUME_OUTLIER      142      100.0       50.7     0.3752
+  R03_STRUCTURING               62       12.9      96.77        0.0
+  R04_FAN_IN                   577      96.19      77.99      0.125
+  R05_FAN_OUT                   75       92.0      90.67     0.0028
+  R07_HIGH_RISK_CHANNEL         72      55.56      100.0        0.0
+  layer: {'pct_coincidental_for_every_fired_rule': 71.57, 'pct_alert_still_raised_without_laundering_any_rule': 71.98, 'pct_no_fired_statistic_involves_laundering': 2.36}
+
+VALIDATION: 213 true alerts (0 with no laundering leg visible to the rules)
+  rule                           n  %involves  %coincid.  share_med
+  R01_LARGE_SINGLE_TXN          37      70.27      29.73           
+  R02_PEER_VOLUME_OUTLIER       48      100.0       37.5     0.9999
+  R03_STRUCTURING               15       6.67      100.0        0.0
+  R04_FAN_IN                   161      100.0      65.84     0.1429
+  R05_FAN_OUT                   18      100.0      83.33     0.0034
+  R07_HIGH_RISK_CHANNEL         17      64.71      100.0        0.0
+  layer: {'pct_coincidental_for_every_fired_rule': 58.69, 'pct_alert_still_raised_without_laundering_any_rule': 59.15, 'pct_no_fired_statistic_involves_laundering': 0.94}

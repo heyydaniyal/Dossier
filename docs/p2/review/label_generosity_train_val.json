@@ -1,0 +1,117 @@
+{
+  "scope": "TRUE alerts of TRAIN and VALIDATION only (label P2-v1)",
+  "data_window": [
+    "2022-09-02T00:00:00+00:00",
+    "2022-09-08T00:00:00+00:00"
+  ],
+  "max_transaction_timestamp_loaded": "2022-09-07T23:59:00+00:00",
+  "stats_recomputation_check": "recomputed statistics equal stored alert statistics",
+  "definitions": {
+    "involves": "the fired rule's statistic includes >= 1 laundering txn of that day (R01: the largest leg is laundering; R02: laundering value > 0; R03: >= 1 laundering txn in the band; R04/R05: >= 1 distinct sender/receiver of a laundering txn; R07: laundering Cash/Bitcoin value > 0)",
+    "coincidental": "the rule still fires on the same account-day when all laundering txns are removed (repo account_stats + fire, frozen thresholds)"
+  },
+  "per_period": {
+    "TRAIN": {
+      "n_true_alerts": 721,
+      "n_true_alerts_no_laundering_leg_visible_to_rules": 0,
+      "per_rule": {
+        "R01_LARGE_SINGLE_TXN": {
+          "n_true_alerts_fired": 86,
+          "pct_statistic_involves_laundering": 52.33,
+          "pct_coincidental_still_fires_without_laundering": 48.84
+        },
+        "R02_PEER_VOLUME_OUTLIER": {
+          "n_true_alerts_fired": 142,
+          "pct_statistic_involves_laundering": 100.0,
+          "pct_coincidental_still_fires_without_laundering": 50.7,
+          "laundering_share_of_statistic_median": 0.3752,
+          "laundering_share_of_statistic_mean": 0.4931
+        },
+        "R03_STRUCTURING": {
+          "n_true_alerts_fired": 62,
+          "pct_statistic_involves_laundering": 12.9,
+          "pct_coincidental_still_fires_without_laundering": 96.77,
+          "laundering_share_of_statistic_median": 0.0,
+          "laundering_share_of_statistic_mean": 0.0156
+        },
+        "R04_FAN_IN": {
+          "n_true_alerts_fired": 577,
+          "pct_statistic_involves_laundering": 96.19,
+          "pct_coincidental_still_fires_without_laundering": 77.99,
+          "laundering_share_of_statistic_median": 0.125,
+          "laundering_share_of_statistic_mean": 0.1341
+        },
+        "R05_FAN_OUT": {
+          "n_true_alerts_fired": 75,
+          "pct_statistic_involves_laundering": 92.0,
+          "pct_coincidental_still_fires_without_laundering": 90.67,
+          "laundering_share_of_statistic_median": 0.0028,
+          "laundering_share_of_statistic_mean": 0.0295
+        },
+        "R07_HIGH_RISK_CHANNEL": {
+          "n_true_alerts_fired": 72,
+          "pct_statistic_involves_laundering": 55.56,
+          "pct_coincidental_still_fires_without_laundering": 100.0,
+          "laundering_share_of_statistic_median": 0.0,
+          "laundering_share_of_statistic_mean": 0.0002
+        }
+      },
+      "layer": {
+        "pct_coincidental_for_every_fired_rule": 71.57,
+        "pct_alert_still_raised_without_laundering_any_rule": 71.98,
+        "pct_no_fired_statistic_involves_laundering": 2.36
+      }
+    },
+    "VALIDATION": {
+      "n_true_alerts": 213,
+      "n_true_alerts_no_laundering_leg_visible_to_rules": 0,
+      "per_rule": {
+        "R01_LARGE_SINGLE_TXN": {
+          "n_true_alerts_fired": 37,
+          "pct_statistic_involves_laundering": 70.27,
+          "pct_coincidental_still_fires_without_laundering": 29.73
+        },
+        "R02_PEER_VOLUME_OUTLIER": {
+          "n_true_alerts_fired": 48,
+          "pct_statistic_involves_laundering": 100.0,
+          "pct_coincidental_still_fires_without_laundering": 37.5,
+          "laundering_share_of_statistic_median": 0.9999,
+          "laundering_share_of_statistic_mean": 0.6247
+        },
+        "R03_STRUCTURING": {
+          "n_true_alerts_fired": 15,
+          "pct_statistic_involves_laundering": 6.67,
+          "pct_coincidental_still_fires_without_laundering": 100.0,
+          "laundering_share_of_statistic_median": 0.0,
+          "laundering_share_of_statistic_mean": 0.0005
+        },
+        "R04_FAN_IN": {
+          "n_true_alerts_fired": 161,
+          "pct_statistic_involves_laundering": 100.0,
+          "pct_coincidental_still_fires_without_laundering": 65.84,
+          "laundering_share_of_statistic_median": 0.1429,
+          "laundering_share_of_statistic_mean": 0.232
+        },
+        "R05_FAN_OUT": {
+          "n_true_alerts_fired": 18,
+          "pct_statistic_involves_laundering": 100.0,
+          "pct_coincidental_still_fires_without_laundering": 83.33,
+          "laundering_share_of_statistic_median": 0.0034,
+          "laundering_share_of_statistic_mean": 0.0304
+        },
+        "R07_HIGH_RISK_CHANNEL": {
+          "n_true_alerts_fired": 17,
+          "pct_statistic_involves_laundering": 64.71,
+          "pct_coincidental_still_fires_without_laundering": 100.0,
+          "laundering_share_of_statistic_median": 0.0,
+          "laundering_share_of_statistic_mean": 0.0
+        }
+      },
+      "layer": {
+        "pct_coincidental_for_every_fired_rule": 58.69,
+        "pct_alert_still_raised_without_laundering_any_rule": 59.15,
+        "pct_no_fired_statistic_involves_laundering": 0.94
+      }
+    }
+  }
+}

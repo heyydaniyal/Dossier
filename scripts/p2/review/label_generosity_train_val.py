@@ -35,6 +35,10 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+# Windows writes piped output as cp1252, which cannot encode polars table borders
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 sys.path.insert(0, str(Path.cwd()))  # the script may live outside the repo; run from repo root
 
 import polars as pl  # noqa: E402
