@@ -1,0 +1,64 @@
+# Identity (account-recognition) guard, version 2. BINDING for every model feature group in P3-P5.
+# Approved by Dani 2026-10-05 (independent P2 review, finding C-1). Supersedes the v1 rule in
+# configs/p2_kyc.yaml -> identity_guard, which stays unchanged there as the record of how KYC was
+# judged in P2 (KYC's exclusion does not depend on either rule: adding KYC lowers PR-AUC on seen
+# and unseen accounts alike, C3 < 0).
+# Thresholds may be tightened, never loosened, without Dani's decision.
+#
+# Why v1 was replaced: it divided each subset's AP gain by that subset's own prevalence (seen
+# 1.65%, unseen 7.5%), so "unseen >= 0.5 x seen" really meant "unseen dAP >= 2.27 x seen dAP";
+# with no confidence intervals and 28 seen positives, a no-effect group was called
+# account_recognition ~50% of the time and a group with the same real effect on both subsets ~99%.
+version: 2
+status: FROZEN
+approved_by: Dani
+approved_on: "2026-10-05"
+
+# Statistic per subset s in {seen, unseen}: added separation on a probit-AUC scale,
+#   d'(AUC) = sqrt(2) * Phi^-1(AUC)   (AUC clipped to [1e-6, 1 - 1e-6]);  gain_s = d'(with) - d'(base)
+# = extra separation between laundering and legitimate alerts, in standard deviations. It does
+# not depend on the subset's prevalence and little on the base model's level. dAP per subset is
+# reported next to the verdict but does not decide it.
+statistic: delta_dprime
+
+# Rolling-origin folds inside TRAIN + VALIDATION, with a 1-day embargo between the last fit day
+# and the evaluated day. Never CALIBRATION or TEST.
+folds:
+  - {name: F1, fit_days: ["2022-09-02"], eval_day: "2022-09-04"}
+  - {name: F2, fit_days: ["2022-09-02", "2022-09-03"], eval_day: "2022-09-05"}
+  - {name: F3, fit_days: ["2022-09-02", "2022-09-03", "2022-09-04", "2022-09-05"], eval_day: "2022-09-07"}
+
+# "seen" = the account_key appears in the ROWS THAT FOLD'S MODEL WAS FITTED ON (built by the
+# caller from its own training rows; equals "had an alert in the fit days" only if the model is
+# fitted on alerts).
+pooling: positive_weighted_mean   # per subset: mean of per-fold gains weighted by fold positives
+
+# Paired bootstrap (the same resample for base and with-group predictions), resampling ACCOUNTS:
+# one multiplicity per account_key per replicate, shared by every fold and both subsets.
+bootstrap:
+  unit: account
+  n_boot: 2000
+  seed: 20260930
+  ci: 0.95            # percentile intervals
+
+thresholds:
+  n_min_pos_seen: 30          # pooled positives over folds; fewer -> insufficient_data
+  n_min_pos_unseen: 30
+  ratio: 0.5                  # recognition if unseen gain is credibly below 0.5 x seen gain
+  seen_base_auc_max: 0.995    # seen base AUC at/above this -> d' unstable -> insufficient_data
+
+# Verdicts, evaluated in this order; the first that matches wins.
+verdicts:
+  insufficient_data:   {cleared: false, rule: "pooled positives below n_min in a subset, or seen base AUC >= seen_base_auc_max"}
+  harms_unseen:        {cleared: false, rule: "CI upper of unseen gain < 0"}
+  account_recognition: {cleared: false, rule: "CI lower of seen gain > 0 AND CI upper of (unseen gain - ratio x seen gain) < 0"}
+  pass:                {cleared: true,  rule: "CI lower of unseen gain > 0"}
+  inconclusive:        {cleared: false, rule: "CI lower of seen gain > 0 (none of the above)"}
+  no_material_gain:    {cleared: true,  rule: "otherwise"}
+# "cleared" means only that the guard does not object; whether a group is adopted is still
+# decided by time-series CV PR-AUC (P4).
+
+# Evidence (simulation at the real subset sizes, 1,000 replicates, B=400; review 2026-10-05):
+# no effect -> ~94% cleared; equal real effect -> pass 99.8-100%; seen-only +0.5 SD -> recognition
+# 97-99% with folds; harms unseen -> harms_unseen 100%. Known limit: recognition of only a
+# minority of seen accounts is caught 46-58% of the time.

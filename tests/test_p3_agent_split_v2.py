@@ -174,6 +174,7 @@ def test_config_is_declared_and_keeps_the_frozen_key_and_fraction():
     assert cfg["outputs"]["devtools_dev_ids"].startswith("devtools/")
     assert cfg["outputs"]["removed_from_runtime"].startswith("runtime/")
     assert cfg["group_key"] == {"source": "env", "env_var": "DOSSIER_AGENT_SPLIT_KEY"}
+    assert "Approved by Dani 2026-10-05" in SPLIT_V2_CONFIG.read_text(encoding="utf-8")
 
 
 def test_group_key_is_secret_and_only_its_hash_is_recorded(monkeypatch, tmp_path):

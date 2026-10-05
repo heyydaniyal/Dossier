@@ -8,8 +8,8 @@
 # What changes (src/eval/group_split.py, v2):
 #   1. memberships come from the WHOLE raw file (patterns file for attempts; every laundering
 #      transaction in no pattern), not from laundering legs cut to the usable span;
-#   2. the group key (see group_key below; NEEDS DANI'S DECISION, it replaces the frozen public
-#      hash_key of p2_split.yaml for the group draw).
+#   2. the group key (see group_key below): a SECRET key replaces the frozen public hash_key of
+#      p2_split.yaml for the group draw. Approved by Dani 2026-10-05 ("green signal").
 version: 2
 status: DECLARED
 declared_on: "2026-10-05"
@@ -21,7 +21,7 @@ declared_on: "2026-10-05"
 # removes that: each component's group is a coin flip nobody can predict. The key lives only in
 # Dani's .env (DOSSIER_AGENT_SPLIT_KEY, 64 hex characters = 256 random bits, never committed); the
 # results JSON records its sha256 so a re-run can be checked. Consequence: groups are re-drawn (a
-# component no longer keeps its v1 group). Allowed values: env (recommended) | p2_split_public (v1 behaviour).
+# component no longer keeps its v1 group). Allowed values: env (APPROVED) | p2_split_public (v1).
 # Note: the key holder (Dani) can still recompute the linkage; acceptable only because all
 # AGENT-TEST cases are built and committed in P6 before any prompt work (holdout rule fallback).
 group_key:

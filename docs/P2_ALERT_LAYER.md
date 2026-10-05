@@ -159,7 +159,7 @@ Task-5 reporting is in `p2_results.json → build.rule_metrics`:
 - Memberships come from the whole raw file: the patterns file for attempts (every date, tail included) and every laundering transaction in no pattern.
 - Three graphs: **A** = v1 done correctly (fixes b); **B** = A + unattributed links of any date (fixes b, c); **C** = every laundering-linked account is a node, so hubs without a TEST alert still join their partners (fixes a, b, c).
 - Selection rule, declared before the run: take the first of C, B, A whose largest component holds ≤ 20% of TEST positives and whose groups each hold ≥ 150 positives. If none passes, nothing is written and the run stops for Dani.
-- **Group key (needs Dani's decision; second-pass review, 2026-10-05).** Moving the dev-ID file out of the runtime store is not enough: whoever holds the AGENT-DEV list (the prompt developers, by design) can, with the *public* key, compute the group each TEST account would get on its own, and an account whose real group differs must be laundering-linked (demo: precision 1.0). v2 therefore draws groups with a **secret** key (`DOSSIER_AGENT_SPLIT_KEY` in Dani's `.env`, never committed; the results JSON records only its sha256). This replaces the frozen public `hash_key` of `p2_split.yaml` for the group draw, so groups are re-drawn and a component no longer keeps its v1 group. If Dani declines, `group_key.source: p2_split_public` restores v1 behaviour and C-2 stays only partly fixed. Same `fraction_agent_test` (0.5) either way.
+- **Group key (approved by Dani 2026-10-05; second-pass review).** Moving the dev-ID file out of the runtime store is not enough: whoever holds the AGENT-DEV list (the prompt developers, by design) can, with the *public* key, compute the group each TEST account would get on its own, and an account whose real group differs must be laundering-linked (demo: precision 1.0). v2 therefore draws groups with a **secret** key (`DOSSIER_AGENT_SPLIT_KEY` in Dani's `.env`, never committed; the results JSON records only its sha256). This replaces the frozen public `hash_key` of `p2_split.yaml` for the group draw, so groups are re-drawn and a component no longer keeps its v1 group. Same `fraction_agent_test` (0.5). Dani holds the key and the AGENT-DEV list, so he could still recompute the linkage; this is acceptable only because every AGENT-TEST case is built and committed in P6 before any prompt work (holdout-rule fallback).
 - The disjointness check now runs on the full memberships and raises if any attempt, or any unattributed laundering transaction the variant links, has TEST-alerted members in both groups.
 - The AGENT-DEV id list moves to `devtools/agent_dev_alert_ids.parquet`, which runtime code cannot read (§11). The v1 assignment is kept in `archive/agent_split_p2v1.parquet`.
 
@@ -210,7 +210,7 @@ A report-only rerun uses VALIDATION accounts with no TRAIN alert.
   Adding KYC to the transaction features **lowers** PR-AUC (0.206 → 0.172 on all VALIDATION).
   Identity guard on KYC: seen accounts (1,692 alerts, 28 positives) gain +0.86 × prev; unseen accounts (2,466 alerts, 185 positives) gain −0.38 × prev → **`account_recognition`**. **Consequence: KYC fields are not model features in P3–P5.** The seen subset has only 28 positives, so the seen gain is noisy, but the decision does not depend on it: KYC adds nothing (C3 < 0) on either subset.
 - Any stable per-account attribute (real or synthetic) can do this, so it cannot be "fixed" inside KYC without making KYC useless. The ceilings stay as declared, and the failures are recorded in `configs/p2_kyc.yaml → accepted_ceiling_failures` with the exact measured values of the final run. A results test accepts a failed ceiling only if it is recorded there **and** the unseen-accounts rerun passes every check.
-- The real risk is a **model** that looks good by recognising accounts. It is blocked by a binding rule (`identity_guard` in `configs/p2_kyc.yaml`, code in `src/eval/identity_guard.py`):
+- The real risk is a **model** that looks good by recognising accounts. It is blocked by a binding rule (`identity_guard` in `configs/p2_kyc.yaml`, code in `src/eval/identity_guard.py`). **Superseded for P3–P5 on 2026-10-05 by guard v2** (`configs/p3_identity_guard.yaml`, §12); the v1 rule below is kept as the record of how KYC was judged:
   - For P3–P5, every model feature group is measured on VALIDATION separately for accounts **seen** in TRAIN and **unseen** accounts: gain = PR-AUC(base + group) − PR-AUC(base) in each subset, divided by that subset's prevalence. Raw lift is not compared, because seen and unseen accounts are different populations (the transaction-only model has 4.0× lift on all VALIDATION vs 1.43× on unseen).
   - Verdicts, with thresholds declared before first use: fewer than 20 positives in either subset → `insufficient_data` (not cleared); seen gain < 0.05 × prev → `no_material_gain`; unseen gain < 0.5 × seen gain → `account_recognition` (the group is removed or fixed); otherwise `pass`.
   - Model results are always reported for regime B (unseen accounts) next to regime A.
@@ -293,8 +293,8 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 
 | id | finding | status |
 |---|---|---|
-| C-1 | Identity guard gate is biased (prevalence scaling) and has no power with 28 seen positives | v2 rule proposed; awaiting Dani's approval (thresholds are frozen) |
-| C-2 | AGENT-DEV id list in the runtime store leaks truth | moved to devtools store (§7, §11); fully closed only with the secret group key (§7), which needs Dani's decision |
+| C-1 | Identity guard gate is biased (prevalence scaling) and has no power with 28 seen positives | fixed: guard v2 approved by Dani 2026-10-05 (`configs/p3_identity_guard.yaml`, `evaluate_v2`), binding for P3–P5; v1 kept as the P2 KYC record |
+| C-2 | AGENT-DEV id list in the runtime store leaks truth | fixed: devtools store (§7, §11) + secret group key (approved 2026-10-05); takes effect with the `run_p2 split` run |
 | M-1 | Isolation test scanned 6 packages only; dynamic imports and path reads not caught | fixed: whole repo outside eval/generators, notebooks, dynamic loading, path literals |
 | M-2 | KYC test could not detect use of post-burn-in data | fixed: perturbation test + control |
 | M-3 | Facts test never opened this doc | fixed: every measured number here is rendered from the JSON and asserted |
@@ -307,7 +307,7 @@ A reviewer that had not seen the P2 work read the repo at e7ff285 and ran the fi
 | m-1 | FX residual 0.0125 | cause found; documented below; table not re-fitted (frozen) |
 | m-2, m-3 | Disposition comment, `closed_at` in TEST, R01 ⊂ R02 | documented (§5, §10); `dispositions_visible` loader |
 | m-4 | Frozen `FORBIDDEN_FIELDS` missed eval-store columns | contracts v1.1.0 |
-| m-5 | Guard clears groups that hurt unseen accounts | part of C-1 |
+| m-5 | Guard clears groups that hurt unseen accounts | fixed in guard v2 (`harms_unseen`, not cleared) |
 | m-6 | `--verify` ignored the results JSON | fixed (§11) |
 | m-7, m-8 | Wrong drop reason, stale text, silent skip, missing actuals | fixed (§5, facts test fails instead of skipping) |
 | m-9 | Stale caches reused without a check | fixed: semantic cache key; mismatch stops the run |
