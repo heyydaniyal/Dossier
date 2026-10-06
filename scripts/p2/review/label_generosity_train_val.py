@@ -24,7 +24,8 @@ check asserts that the recomputed statistics equal the statistics stored on ever
 Run from the repo root (Windows or Linux):
     uv run python <path>\\label_generosity_train_val.py
     (options: --variant, --interim-dir, --out-root, --configs-dir, --rules, --split, --out)
-Output: a table on stdout and a JSON file (default: label_generosity_train_val.json in the cwd).
+Output: a table on stdout and a JSON file (default: data/p2/review/, which git ignores; the
+committed copy lives in docs/p2/review/). Open risk 29, fixed in P3.
 """
 
 from __future__ import annotations
@@ -166,7 +167,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--configs-dir", type=Path, default=Path("configs"))
     ap.add_argument("--rules", type=Path, default=Path("configs") / "p2_rules.yaml")
     ap.add_argument("--split", type=Path, default=Path("configs") / "p2_split.yaml")
-    ap.add_argument("--out", type=Path, default=Path("label_generosity_train_val.json"))
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=Path("data") / "p2" / "review" / "label_generosity_train_val.json",
+    )
     a = ap.parse_args(argv)
 
     split = load_split(a.split)
@@ -328,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         out["per_period"][per] = blk
 
+    a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_bytes((json.dumps(out, indent=2) + "\n").encode("utf-8"))
     print(f"wrote {a.out}  (max txn timestamp loaded: {out['max_transaction_timestamp_loaded']})")
     for per, blk in out["per_period"].items():

@@ -2,7 +2,7 @@ wrote label_generosity_train_val.json  (max txn timestamp loaded: 2022-09-07T23:
 
 TRAIN: 721 true alerts (0 with no laundering leg visible to the rules)
   rule                           n  %involves  %coincid.  share_med
-  R01_LARGE_SINGLE_TXN          86      52.33      48.84           
+  R01_LARGE_SINGLE_TXN          86      52.33      48.84
   R02_PEER_VOLUME_OUTLIER      142      100.0       50.7     0.3752
   R03_STRUCTURING               62       12.9      96.77        0.0
   R04_FAN_IN                   577      96.19      77.99      0.125
@@ -12,7 +12,7 @@ TRAIN: 721 true alerts (0 with no laundering leg visible to the rules)
 
 VALIDATION: 213 true alerts (0 with no laundering leg visible to the rules)
   rule                           n  %involves  %coincid.  share_med
-  R01_LARGE_SINGLE_TXN          37      70.27      29.73           
+  R01_LARGE_SINGLE_TXN          37      70.27      29.73
   R02_PEER_VOLUME_OUTLIER       48      100.0       37.5     0.9999
   R03_STRUCTURING               15       6.67      100.0        0.0
   R04_FAN_IN                   161      100.0      65.84     0.1429
