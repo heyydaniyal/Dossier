@@ -1,0 +1,60 @@
+# Phase 3: point-in-time features. Declared 2026-10-06, BEFORE any real-data run (the commit date is
+# the evidence). Decisions validated on 2026-10-06 and approved by Dani ("go ahead"): docs/p3/P3_FEATURES.md §1.
+# Changing anything below after the first real run needs Dani's decision and a dated entry.
+version: 1
+status: DECLARED
+
+# Every feature of an alert with as_of T sees exactly  T - lookback_hours <= ts < T  (frozen P0 tie
+# rule). Must equal configs/p2_split.yaml l_max_hours: the frozen split rejects anything longer
+# (embargo >= L_max, L_max <= window), so with daily windows a feature sees only the alert's day.
+lookback_hours: 24
+
+# Payment formats (DATA_CARD §2). Reinvestment is always a self-transfer and self-transfers are not
+# legs, so its share is 0 by construction; it is kept so that an unexpected value fails loudly.
+payment_formats: [Cheque, Credit Card, ACH, Cash, Reinvestment, Wire, Bitcoin]
+
+# Cross-sectional peer ranks: percentile among ALL accounts with >= 1 non-self leg in the same
+# visible window. No KYC field is used (KYC is excluded from P3-P5 model features, FROZEN 2026-09-30).
+peer_stats: [volume_usd, n_txn, n_distinct_senders, n_distinct_receivers, max_txn_usd]
+
+# Feature groups, in the order the identity guard v2 adds them to the base group.
+# 'rule' is the base (the frozen P2 statistics every alert already carries).
+groups:
+  base: rule
+  candidates: [behaviour, format_mix, dynamics, peer, graph]
+
+# Left out on purpose (validated 2026-10-06, docs/p3/P3_FEATURES.md §1):
+#  - own-baseline deviation: impossible within a 24 h lookback (no earlier history is visible);
+#  - KYC fields and KYC-sector peer groups: FROZEN exclusion (account recognition, P2 §8);
+#  - wall-clock hour / weekday / position-in-window: hour-0 batch and the weekend rate are generator
+#    artefacts (DATA_CARD §4.6) and TEST has no weekend;
+#  - account / bank / entity IDs and any ordering by them (D5);
+#  - known-flagged neighbours: not a model feature in the MDP (src/features/network.py, P10 tool).
+
+# Shuffled-label (permutation) test. Protocol and criteria fixed BEFORE the real run, from a simulation
+# at the real fold sizes (2026-10-06, docs/p3/P3_FEATURES.md §1.6): ALL labels are shuffled within day
+# blocks (fit days and the eval day) and AP is scored against the shuffled eval labels, so a clean
+# pipeline sits at chance (~1.04x prevalence) and a pipeline that uses labels it should not is lifted.
+# (Shuffling only the fit labels was the first draft; the fixture test showed it lifts a CLEAN
+# pipeline to 1.38x because the model is a random function of informative features. Changed the
+# same day, before any real run.)
+permutation_test:
+  model: HistGradientBoostingClassifier   # sklearn defaults, fixed seed; not P4's model choice
+  model_params: {random_state: 20261006}
+  features: all_model_features            # every registry feature with model: true
+  folds: [F1, F2]                         # configs/p3_identity_guard.yaml folds inside TRAIN only
+  n_permutations: 200
+  permute_within: day                     # every label shuffled within its day (fit days, eval day)
+  seed: 20261006
+  statistic: positive_weighted_mean_ap    # per-fold AP, weighted by eval-day positives
+  pass_if:
+    null_mean_over_prevalence_max: 1.15   # null mean <= 1.15 x positive-weighted eval prevalence
+    real_above_null_max: true             # real statistic above every null value -> p = 1/(n+1)
+
+# Real-data point-in-time checks (scripts/p3/run_p3.py check), pre-TEST periods only.
+pit_check:
+  n_alerts_batch: 2000     # deletion-recompute + outside-window mutation, batch path
+  n_alerts_pure: 40        # pure per-account path == batch path (slow reference implementation)
+  sample_seed: 20261006    # sampled by keyed hash of alert_id (never by store order, D5 / review m-10)
+  abs_tol: 1.0e-9
+  rel_tol: 1.0e-9

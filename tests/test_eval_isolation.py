@@ -35,6 +35,13 @@ RUNTIME_PACKAGES = ["src/agents", "src/tools", "src/rag", "src/app", "src/alerts
 # generators (TRAIN-label calibration, planted KYC explanations, simulated dispositions).
 FORBIDDEN_PREFIXES = ("src.eval", "scripts.audit", "scripts.p2")
 EXEMPT_DIRS = ("src/eval", "scripts/p2", "scripts/audit")
+# Narrow exemption (P3, open risk 26, decided 2026-10-06): offline model-fitting drivers are scanned
+# like runtime code, except that they may import EXACTLY these harness modules, by the full
+# `from src.eval.<module> import ...` form. Every other check (eval-store literals, label column,
+# dynamic imports, patterns file) still applies to them.
+NARROW_EVAL_IMPORTS = {
+    "scripts/p3": ("src.eval.training_labels", "src.eval.identity_guard"),
+}
 FORBIDDEN_PATH_TOKENS = ("src/eval", "scripts/p2", "scripts/audit", "src\\eval")
 # Substrings that name a ground-truth column, file or store. Matched case-insensitively inside any
 # non-docstring string literal (after folding "a" + "b"). Kept to names that ordinary runtime code
@@ -219,7 +226,12 @@ def _violations_in_source(src: str, rel: str, pkg_parts: tuple[str, ...] = ()) -
                 names = [mod] + [f"{mod}.{a.name}" for a in node.names]
             else:
                 names = [node.module or ""] + [f"{node.module}.{a.name}" for a in node.names]
+        allowed_mods = next(
+            (m for d, m in NARROW_EVAL_IMPORTS.items() if rel.startswith(d + "/")), ()
+        )
         for n in names:
+            if any(n == m or n.startswith(m + ".") for m in allowed_mods):
+                continue
             if any(n == p or n.startswith(p + ".") for p in FORBIDDEN_PREFIXES):
                 out.append(f"{rel}:{ln} imports '{n}'")
             if n == "eval" or n.startswith("eval."):
@@ -431,6 +443,31 @@ def test_detector_catches_every_probe():
     for code, kind in PROBES.items():
         assert _violations_in_source(code, "src/features/_probe/x.py", pkg), (kind, code)
     assert _violations_in_source(CLEAN, "src/features/_probe/ok.py", pkg) == []
+
+
+def test_narrow_exemption_for_offline_fitting_drivers():
+    """scripts/p3 may import the label loader and the identity guard, nothing else from src.eval,
+    and stays under every other check."""
+    rel = "scripts/p3/x.py"
+    ok = (
+        "from src.eval.training_labels import load_fit_labels\n"
+        "from src.eval.identity_guard import evaluate_v2\n"
+        "y = load_fit_labels(['TRAIN'], 'HI-Medium', root)\n"
+    )
+    assert _violations_in_source(ok, rel) == []
+    for bad in (
+        "from src.eval.alert_labels import label_alerts\n",
+        "from src.eval import training_labels\n",
+        "import src.eval\n",
+        "from src.eval.group_split import x\n",
+        "import polars as pl\ny = pl.read_parquet('data/p2/HI-Medium/eval/alert_labels.parquet')\n",
+        "c = 'is_laundering'\n",
+        "import importlib\nm = importlib.import_module('src.eval.alert_labels')\n",
+    ):
+        assert _violations_in_source(bad, rel), bad
+    # the allowance is per directory: the same import elsewhere is still a violation
+    assert _violations_in_source(ok, "src/models/x.py")
+    assert _violations_in_source(ok, "scripts/p3x/x.py")
 
 
 def test_notebook_cells_are_scanned(tmp_path: Path):

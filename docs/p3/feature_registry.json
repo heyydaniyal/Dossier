@@ -1,0 +1,1172 @@
+{
+  "registry_sha256": "10d5dae9c521ccc8ad028f78b64fcc502c5f602bccab203f19d35c0fbd5b8c3b",
+  "lookback_hours": 24,
+  "n_model_features": 61,
+  "features": [
+    {
+      "name": "max_txn_usd",
+      "group": "rule",
+      "definition": "largest single leg (USD), either role (R01 statistic)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "volume_usd",
+      "group": "rule",
+      "definition": "total USD of all legs in + out (R02 statistic)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_near_threshold",
+      "group": "rule",
+      "definition": "legs in [9,000, 10,000) USD (R03 statistic)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_distinct_senders",
+      "group": "rule",
+      "definition": "distinct counterparties sending to the account (R04 statistic)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_distinct_receivers",
+      "group": "rule",
+      "definition": "distinct counterparties the account sends to (R05 statistic)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "pass_through_usd",
+      "group": "rule",
+      "definition": "min(in, out) USD if out/in in [0.8, 1.25] and an outflow follows the first inflow, else 0 (R06 statistic; rule inactive)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "high_risk_channel_usd",
+      "group": "rule",
+      "definition": "USD via Cash or Bitcoin (R07 statistic)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_cross_currency",
+      "group": "rule",
+      "definition": "legs whose paid and received currency differ (R08; rule inactive)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_round_amounts",
+      "group": "rule",
+      "definition": "legs that are exact multiples of 1,000 in their own currency (R09; rule inactive)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_txn",
+      "group": "rule",
+      "definition": "number of legs (non-self transactions, both roles)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "in_usd",
+      "group": "rule",
+      "definition": "USD received",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "out_usd",
+      "group": "rule",
+      "definition": "USD sent",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_rules_triggered",
+      "group": "rule",
+      "definition": "number of active rules that fire on the window",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config",
+        "rule_thresholds_train",
+        "alert_peer_group"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "fired_R01_LARGE_SINGLE_TXN",
+      "group": "rule",
+      "definition": "1 if frozen rule R01_LARGE_SINGLE_TXN fires on the window (P2 thresholds)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config",
+        "rule_thresholds_train",
+        "alert_peer_group"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "fired_R02_PEER_VOLUME_OUTLIER",
+      "group": "rule",
+      "definition": "1 if frozen rule R02_PEER_VOLUME_OUTLIER fires on the window (P2 thresholds)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config",
+        "rule_thresholds_train",
+        "alert_peer_group"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "fired_R03_STRUCTURING",
+      "group": "rule",
+      "definition": "1 if frozen rule R03_STRUCTURING fires on the window (P2 thresholds)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config",
+        "rule_thresholds_train",
+        "alert_peer_group"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "fired_R04_FAN_IN",
+      "group": "rule",
+      "definition": "1 if frozen rule R04_FAN_IN fires on the window (P2 thresholds)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config",
+        "rule_thresholds_train",
+        "alert_peer_group"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "fired_R05_FAN_OUT",
+      "group": "rule",
+      "definition": "1 if frozen rule R05_FAN_OUT fires on the window (P2 thresholds)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config",
+        "rule_thresholds_train",
+        "alert_peer_group"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "fired_R07_HIGH_RISK_CHANNEL",
+      "group": "rule",
+      "definition": "1 if frozen rule R07_HIGH_RISK_CHANNEL fires on the window (P2 thresholds)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config",
+        "rule_thresholds_train",
+        "alert_peer_group"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_in",
+      "group": "behaviour",
+      "definition": "legs received",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_out",
+      "group": "behaviour",
+      "definition": "legs sent",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "amt_mean_usd",
+      "group": "behaviour",
+      "definition": "mean leg amount (USD)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "amt_median_usd",
+      "group": "behaviour",
+      "definition": "median leg amount (USD)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "amt_min_usd",
+      "group": "behaviour",
+      "definition": "smallest leg amount (USD)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "amt_std_usd",
+      "group": "behaviour",
+      "definition": "population std of leg amounts (USD)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "amt_cv",
+      "group": "behaviour",
+      "definition": "amt_std_usd / amt_mean_usd",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "amt_log10_std",
+      "group": "behaviour",
+      "definition": "population std of log10(leg USD)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "share_near_threshold",
+      "group": "behaviour",
+      "definition": "n_near_threshold / n_txn",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "share_round",
+      "group": "behaviour",
+      "definition": "n_round_amounts / n_txn",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "share_cross_currency",
+      "group": "behaviour",
+      "definition": "n_cross_currency / n_txn",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_currencies",
+      "group": "behaviour",
+      "definition": "distinct currencies of the account's legs (its own side of each leg)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_counterparties",
+      "group": "behaviour",
+      "definition": "distinct counterparties, either role",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "cp_hhi",
+      "group": "behaviour",
+      "definition": "Herfindahl index of USD across counterparties (1 = one counterparty)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "max_txn_one_cp",
+      "group": "behaviour",
+      "definition": "most legs with a single counterparty",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "repeat_share",
+      "group": "behaviour",
+      "definition": "1 - n_counterparties / n_txn",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "net_flow_ratio",
+      "group": "behaviour",
+      "definition": "(in_usd - out_usd) / volume_usd",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "n_self_transfers",
+      "group": "behaviour",
+      "definition": "transactions from the account to itself (not legs)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "share_fmt_cheque",
+      "group": "format_mix",
+      "definition": "share of legs paid by Cheque",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": "Generator signature (DATA_CARD \u00a77): real in this data, may not transfer to a bank; P4 runs a sensitivity check without it."
+    },
+    {
+      "name": "share_fmt_credit_card",
+      "group": "format_mix",
+      "definition": "share of legs paid by Credit Card",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": "Generator signature (DATA_CARD \u00a77): real in this data, may not transfer to a bank; P4 runs a sensitivity check without it."
+    },
+    {
+      "name": "share_fmt_ach",
+      "group": "format_mix",
+      "definition": "share of legs paid by ACH",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": "Generator signature (DATA_CARD \u00a77): real in this data, may not transfer to a bank; P4 runs a sensitivity check without it."
+    },
+    {
+      "name": "share_fmt_cash",
+      "group": "format_mix",
+      "definition": "share of legs paid by Cash",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": "Generator signature (DATA_CARD \u00a77): real in this data, may not transfer to a bank; P4 runs a sensitivity check without it."
+    },
+    {
+      "name": "share_fmt_reinvestment",
+      "group": "format_mix",
+      "definition": "share of legs paid by Reinvestment",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": "Generator signature (DATA_CARD \u00a77): real in this data, may not transfer to a bank; P4 runs a sensitivity check without it."
+    },
+    {
+      "name": "share_fmt_wire",
+      "group": "format_mix",
+      "definition": "share of legs paid by Wire",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": "Generator signature (DATA_CARD \u00a77): real in this data, may not transfer to a bank; P4 runs a sensitivity check without it."
+    },
+    {
+      "name": "share_fmt_bitcoin",
+      "group": "format_mix",
+      "definition": "share of legs paid by Bitcoin",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": "Generator signature (DATA_CARD \u00a77): real in this data, may not transfer to a bank; P4 runs a sensitivity check without it."
+    },
+    {
+      "name": "active_hours",
+      "group": "dynamics",
+      "definition": "distinct clock-hour buckets with >= 1 leg (a count, not the hour)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "span_hours",
+      "group": "dynamics",
+      "definition": "hours between the first and last leg",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "max_txn_per_hour",
+      "group": "dynamics",
+      "definition": "most legs in one clock-hour bucket",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "median_interarrival_min",
+      "group": "dynamics",
+      "definition": "median minutes between consecutive legs (NaN if 1 leg)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "in_to_out_lag_min",
+      "group": "dynamics",
+      "definition": "minutes from the first inflow to the first outflow at or after it (NaN if none)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "pct_volume_usd",
+      "group": "peer",
+      "definition": "average-rank percentile of volume_usd among all accounts with >= 1 non-self leg in the same visible window (no KYC grouping)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "pct_n_txn",
+      "group": "peer",
+      "definition": "average-rank percentile of n_txn among all accounts with >= 1 non-self leg in the same visible window (no KYC grouping)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "pct_n_distinct_senders",
+      "group": "peer",
+      "definition": "average-rank percentile of n_distinct_senders among all accounts with >= 1 non-self leg in the same visible window (no KYC grouping)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "pct_n_distinct_receivers",
+      "group": "peer",
+      "definition": "average-rank percentile of n_distinct_receivers among all accounts with >= 1 non-self leg in the same visible window (no KYC grouping)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "pct_max_txn_usd",
+      "group": "peer",
+      "definition": "average-rank percentile of max_txn_usd among all accounts with >= 1 non-self leg in the same visible window (no KYC grouping)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "fx_train",
+        "rule_config"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "reciprocal_cp",
+      "group": "graph",
+      "definition": "counterparties that both send to and receive from the account",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "cycles3",
+      "group": "graph",
+      "definition": "directed 3-cycles v->u->w->v through the account (distinct pairs graph)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "reach2_out",
+      "group": "graph",
+      "definition": "distinct accounts reachable in exactly 2 outgoing hops (excluding itself)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "reach2_in",
+      "group": "graph",
+      "definition": "distinct accounts reaching it in exactly 2 hops (excluding itself)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "senders_mean_outdeg",
+      "group": "graph",
+      "definition": "mean number of distinct receivers of the account's senders (NaN if none)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "receivers_mean_indeg",
+      "group": "graph",
+      "definition": "mean number of distinct senders of the account's receivers (NaN if none)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    },
+    {
+      "name": "wcc_log10_size",
+      "group": "graph",
+      "definition": "log10 of the size of the account's weakly connected component in the window's graph (community feature)",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions"
+      ],
+      "model": true,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_deletion_recompute_batch",
+        "test_outside_window_mutation_changes_nothing",
+        "test_pure_path_equals_batch_path"
+      ],
+      "note": ""
+    }
+  ],
+  "tool_only": [
+    {
+      "name": "flagged_counterparties",
+      "group": "network_tool",
+      "definition": "counterparties of the account in the window whose own earlier alert was CONFIRMED and CLOSED (simulated disposition, pre-TEST alerts) strictly before as_of",
+      "lookback_hours": 24,
+      "inputs": [
+        "transactions",
+        "dispositions_visible"
+      ],
+      "model": false,
+      "owner": "Daniyal Ahmad (Modelling seam)",
+      "as_of_tests": [
+        "test_flagged_neighbours_point_in_time"
+      ],
+      "note": "Noisy by design (confirmed_suspicious precision 56.5%); never a label."
+    }
+  ]
+}

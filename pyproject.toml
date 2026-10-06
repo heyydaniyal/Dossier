@@ -21,6 +21,7 @@ data = [
     "polars>=1.20",
     "scikit-learn>=1.5",
     "numpy>=1.26",
+    "scipy>=1.11",  # P3 graph features (sparse matrices); was only transitive via scikit-learn
 ]
 
 [tool.uv]

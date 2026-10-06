@@ -165,6 +165,7 @@ data = [
     { name = "numpy" },
     { name = "polars" },
     { name = "scikit-learn" },
+    { name = "scipy" },
 ]
 dev = [
     { name = "pre-commit" },
@@ -185,6 +186,7 @@ data = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "polars", specifier = ">=1.20" },
     { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "scipy", specifier = ">=1.11" },
 ]
 dev = [
     { name = "pre-commit", specifier = ">=3.7" },
