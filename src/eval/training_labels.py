@@ -1,8 +1,9 @@
 """The ONE way model-fitting code (P3 permutation test, P4 model, P5 calibration) gets labels.
 
 Open risk 26 (P3 task 0), decided 2026-10-06: labels are read only here, in the evaluation
-harness. Offline drivers in scripts/p3 (and later scripts/p4, scripts/p5) may import this module
-and src.eval.identity_guard, nothing else from src.eval (tests/test_eval_isolation.py). src/features
+harness. Offline drivers in scripts/p3 and scripts/p4 (allowance dated 2026-10-12; scripts/p5 not
+yet) may import this module and src.eval.identity_guard, nothing else from src.eval
+(tests/test_eval_isolation.py). src/features
 and src/models stay label-free and receive y as an argument.
 
 TEST is refused BEFORE any file is opened: the model holdout is evaluated once, in P5 task 8, by a
@@ -24,14 +25,87 @@ class HoldoutAccessError(PermissionError):
     """Labels of a holdout period were requested by fitting code."""
 
 
-def load_fit_labels(periods: list[str], variant: str, store_root: Path) -> pl.DataFrame:
-    """alert_id, period, y (0/1 Int8) for every alert of the requested pre-TEST periods."""
+def _refuse_holdout(periods: list[str]) -> list[str]:
     periods = list(periods)
     bad = [p for p in periods if p not in FIT_PERIODS]
     if bad or not periods:
         raise HoldoutAccessError(
             f"labels may be loaded only for {FIT_PERIODS}; asked for {periods}"
         )
+    return periods
+
+
+# Reporting strata (P4: per-typology recall, laundering-share strata, fan-in vs other rules).
+# Built HERE so truth-derived fields never leave the evaluation module: callers receive only stratum
+# NAMES per positive alert. Never model inputs: P4 builds X strictly from registry feature names.
+DETAIL_COLUMNS = ("n_laundering_txns", "has_unattributed", "typologies")
+
+
+def share_bin(share: float, edges: list[float]) -> str:
+    """'share_[lo,hi)' for the bin containing share; the last bin is open-ended."""
+    for lo, hi in zip(edges, [*edges[1:], None], strict=True):
+        if share >= lo and (hi is None or share < hi):
+            return f"share_[{lo:.2f},{'inf' if hi is None else f'{hi:.2f}'})"
+    raise ValueError(f"share {share} below the first edge {edges[0]}")
+
+
+def _label_details(periods: list[str], variant: str, store_root: Path) -> pl.DataFrame:
+    y = load_fit_labels(periods, variant, store_root)
+    det = (
+        pl.scan_parquet(Path(store_root) / variant / "eval" / "alert_labels.parquet")
+        .select("alert_id", *DETAIL_COLUMNS)
+        .join(y.lazy().select("alert_id"), on="alert_id", how="semi")
+        .collect()
+    )
+    out = y.join(det, on="alert_id", how="left")
+    if out.height != y.height or out["n_laundering_txns"].null_count():
+        raise RuntimeError("label details missing for some requested alerts")
+    if ((out["y"] == 1) != (out["n_laundering_txns"] > 0)).any():
+        raise RuntimeError("label details disagree with the frozen label")
+    return out
+
+
+def load_fit_strata(
+    periods: list[str], variant: str, store_root: Path, strata_cfg: dict
+) -> pl.DataFrame:
+    """alert_id, period, y, strata (list of stratum names; empty for negatives) for pre-TEST
+    alerts. strata_cfg = configs/p4_diagnosis.yaml -> strata. TEST is refused before any file is
+    opened. Strata: laundering share of the account-day's legs (bins), fan-in rule fired or not,
+    each pattern typology, unattributed laundering."""
+    periods = _refuse_holdout(periods)
+    det = _label_details(periods, variant, store_root)
+    alerts = (
+        pl.scan_parquet(Path(store_root) / variant / "runtime" / "alerts.parquet")
+        .select("alert_id", "n_txn", "triggered_rules")
+        .join(det.lazy().select("alert_id"), on="alert_id", how="semi")
+        .collect()
+    )
+    j = det.join(alerts, on="alert_id", how="left")
+    if j["n_txn"].null_count():
+        raise RuntimeError("alerts missing from the runtime store")
+    names = []
+    for r in j.iter_rows(named=True):
+        if r["y"] != 1:
+            names.append([])
+            continue
+        share = r["n_laundering_txns"] / r["n_txn"]
+        k = [share_bin(share, strata_cfg["laundering_share_bins"])]
+        fan = strata_cfg["fan_in_rule"] in (r["triggered_rules"] or [])
+        k.append("rule_fan_in" if fan else "rule_other")
+        k += [f"typ_{t}" for t in strata_cfg["typologies"] if t in (r["typologies"] or [])]
+        if strata_cfg.get("unattributed") and r["has_unattributed"]:
+            k.append("unattributed")
+        names.append(k)
+    return (
+        j.select("alert_id", "period", "y")
+        .with_columns(pl.Series("strata", names, dtype=pl.List(pl.String)))
+        .sort("alert_id")
+    )
+
+
+def load_fit_labels(periods: list[str], variant: str, store_root: Path) -> pl.DataFrame:
+    """alert_id, period, y (0/1 Int8) for every alert of the requested pre-TEST periods."""
+    periods = _refuse_holdout(periods)
     base = Path(store_root) / variant
     alerts = (
         pl.scan_parquet(base / "runtime" / "alerts.parquet")

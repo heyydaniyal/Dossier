@@ -1,0 +1,67 @@
+# Phase 4, step 0: diagnosis of the seen/unseen gap (open risk 36). DECLARED 2026-10-12, BEFORE
+# any real-data run (the commit date is the evidence). Interpretation rules below are fixed now;
+# changing them after the run needs Dani's decision and a dated entry.
+#
+# Data: TRAIN only (folds F1, F2 of configs/p3_identity_guard.yaml). VALIDATION is NOT read: it is
+# a single day and is kept for the P4 model comparison. No TEST, no CALIBRATION.
+# Labels: src.eval.training_labels only. Label details (typologies, laundering-txn counts) are used
+# to STRATIFY reported numbers, never as model inputs.
+version: 1
+status: DECLARED
+
+folds: [F1, F2]                 # F1: fit 09-02 -> eval 09-04;  F2: fit 09-02..03 -> eval 09-05
+
+# Same model as the P3 permutation test and guard (sklearn HGB defaults), so the numbers are
+# comparable with P3's base AUC 0.903 (seen) / 0.519 (unseen). Not P4's model choice.
+model: HistGradientBoostingClassifier
+seeds: [20261012, 20261013, 20261014, 20261015, 20261016]   # every arm = mean over these fits
+features: all_model_features    # the 61 registry features (rule group alone is reported too)
+
+# Q-A  Recognition or population?  Three arms per fold, scored on the eval-day rows of SEEN
+# accounts (account_key present in the fold's fit rows):
+#   full      fit on all fit rows (as P3);
+#   disjoint  fit rows of every seen-eval account removed (the model has never seen them);
+#   control   the same NUMBER of rows and positives removed, drawn from accounts absent from the
+#             eval day (separates "less data" from "the account's own rows were removed");
+#             one random draw per seed.
+# label_memory: score = the account's mean label over the fit rows (pure label persistence).
+recognition:
+  n_boot: 2000                  # paired bootstrap over seen eval accounts, within fold
+  boot_seed: 20261012
+  ci: 0.95
+  # Verdict on the pooled (positive-weighted) seen AUCs, first match wins:
+  #   no_gap      : CI lower of control <= unseen_full point (no seen advantage to explain;
+  #                 added 2026-10-12 before any real run: pure noise otherwise read as "mixed")
+  #   recognition : CI lower of (control - disjoint) > 0
+  #                 AND disjoint point <= unseen_full point + 0.5 x (control point - unseen_full point)
+  #                 (losing the account's own rows takes away at least half of the seen advantage)
+  #   population  : CI upper of (control - disjoint) < 0.05 AND CI lower of disjoint > unseen_full point
+  #                 (removing the account's own rows changes little; seen accounts stay separable)
+  #   mixed       : otherwise
+  min_seen_pos: 30              # fewer pooled seen positives -> verdict "insufficient_data"
+
+# Q-B  Univariate signal on unseen accounts. Per feature, per fold: AUC with NaN ranked lowest;
+# pooled positive-weighted; 95% account-bootstrap CI. Reported with its orientation. Many features
+# are tested: read the CIs as screening, not as findings.
+univariate:
+  n_boot: 500
+  boot_seed: 20261012
+  top_k: 15
+
+# Q-C  Which unseen positives does the full model rank? Each stratum's positives against ALL unseen
+# negatives of the same fold (AUC, pooled positive-weighted, n reported). Strata declared here:
+strata:
+  laundering_share_bins: [0.0, 0.1, 0.5]   # n_laundering_txns / n_txn: [0,.1) needle, [.1,.5), [.5,..] dominated
+  fan_in_rule: R04_FAN_IN                  # P6's two groups: fan-in fired vs not
+  typologies: [BIPARTITE, CYCLE, FAN-IN, FAN-OUT, GATHER-SCATTER, RANDOM, SCATTER-GATHER, STACK]
+  unattributed: true                       # has_unattributed as its own stratum
+  min_stratum_pos: 15                      # below this, AUC is reported as null (n still shown)
+
+# What each outcome means for P4 (decided now, before the run):
+#  - Q-A recognition -> seen-account AUC is not evidence of skill; P4 reports regime B as the number
+#    that matters and fits with seen-account rows down-weighted (to be proposed).
+#  - Q-A population  -> the gap is who the seen accounts are; no fix needed on the fit side.
+#  - Q-B any unseen CI lower > 0.55 that the full model does not reach -> under-use; tuning first.
+#  - Q-C needle stratum large and at chance, dominated stratum above chance -> levers 1-2
+#    (leg-level scoring) target the right population. Dominated stratum also at chance ->
+#    levers 1-2 unlikely to help; report the ceiling.

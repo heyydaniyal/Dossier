@@ -41,6 +41,8 @@ EXEMPT_DIRS = ("src/eval", "scripts/p2", "scripts/audit")
 # dynamic imports, patterns file) still applies to them.
 NARROW_EVAL_IMPORTS = {
     "scripts/p3": ("src.eval.training_labels", "src.eval.identity_guard"),
+    # P4 (dated 2026-10-12, PROJECT_STATE P3 input vi): the same narrow allowance for the P4 driver
+    "scripts/p4": ("src.eval.training_labels", "src.eval.identity_guard"),
 }
 FORBIDDEN_PATH_TOKENS = ("src/eval", "scripts/p2", "scripts/audit", "src\\eval")
 # Substrings that name a ground-truth column, file or store. Matched case-insensitively inside any
@@ -468,6 +470,25 @@ def test_narrow_exemption_for_offline_fitting_drivers():
     # the allowance is per directory: the same import elsewhere is still a violation
     assert _violations_in_source(ok, "src/models/x.py")
     assert _violations_in_source(ok, "scripts/p3x/x.py")
+
+
+def test_narrow_exemption_for_p4_driver_is_the_same_and_no_wider():
+    """scripts/p4 gets exactly scripts/p3's allowance (label loader + identity guard)."""
+    assert NARROW_EVAL_IMPORTS["scripts/p4"] == NARROW_EVAL_IMPORTS["scripts/p3"]
+    rel = "scripts/p4/x.py"
+    ok = (
+        "from src.eval.training_labels import load_fit_strata\n"
+        "d = load_fit_strata(['TRAIN'], 'HI-Medium', root, cfg)\n"
+    )
+    assert _violations_in_source(ok, rel) == []
+    for bad in (
+        "from src.eval.alert_labels import label_alerts\n",
+        "from src.eval.group_split import x\n",
+        "import polars as pl\ny = pl.read_parquet('data/p2/HI-Medium/eval/alert_labels.parquet')\n",
+        "c = 'is_laundering'\n",
+    ):
+        assert _violations_in_source(bad, rel), bad
+    assert _violations_in_source(ok, "scripts/p5/x.py")  # not granted ahead of time
 
 
 def test_notebook_cells_are_scanned(tmp_path: Path):
