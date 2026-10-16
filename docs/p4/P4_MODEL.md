@@ -14,6 +14,9 @@ laptop (`docs/p4/p4_diagnosis.json` first).
 | `src/features/legs.py` | payment-level features, point-in-time, label-free |
 | `src/models/leg_check.py` | step 0b analysis, label-free |
 | `scripts/p4/leg_check.py` | step 0b driver: TRAIN only, aggregates only |
+| `configs/p4_models.yaml` | search space, metrics, cost ratio, stop rules, save rules — **declared before any model is fitted** |
+| `src/models/metrics.py`, `families.py`, `store.py` | metrics; rules / logistic / LightGBM behind one interface; save and load **by hash** |
+| `scripts/p4/models.py` | `cv` (TRAIN only) then `validate` (VALIDATION once): finalists, selection, stop rules, guard, operating point, model + card |
 
 ## 1. Decisions (validated 2026-10-16 before implementing; approved by Dani: "push ok go ahead")
 
@@ -25,7 +28,8 @@ laptop (`docs/p4/p4_diagnosis.json` first).
 | P4-4 | **Tune inside TRAIN; open VALIDATION once**, at most 5 finalists, with a declared rule: the simpler model wins unless the PR-AUC gain's paired account-bootstrap 95% CI excludes 0 | Simulation at 213 positives / 4,158 alerts: one look carries ±17–25% noise; best of 5 configs is 6–13% optimistic, best of 20 is 7–19%; two models are ranked correctly unless their true gap is below ≈ 0.03 PR-AUC. The simulation assumes independent rows, so the real spread is wider (accounts cluster). VALIDATION was already used in P2 (revision-2 count, KYC checks) and in the P3 guard (fold F3); this is allowed and listed in the protocol | Holds. `configs/p4_protocol.yaml` |
 | P4-5 | **`scripts/p4` gets exactly the `scripts/p3` label-access allowance** (`src.eval.training_labels`, `src.eval.identity_guard`) | 4 planted widenings caught: one extra module, the whole `src.eval`, the driver importing the label builder, the label-free model module importing labels. `scripts/p5` is not granted ahead of time | Holds. `tests/test_eval_isolation.py` |
 | P4-7 | **Step 0b: one-off use of transaction-level labels as the target of a DIAGNOSTIC payment model, TRAIN only** (approved by Dani 2026-10-16, "ok, lets go for your recommendation") | Step 0 Q-C contradicted the needle hypothesis (below). Before building levers 1–2 or deciding P4-6, test whether laundering payments of NEW accounts differ from normal ones at all | Dated deviation from the frozen ontology, scoped to this check: `src/eval/training_labels.load_fit_laundering_txns` refuses TEST; nothing fitted is kept; aggregates only |
-| P4-6 | **Transaction-level labels as training targets: PENDING** | Changes the FROZEN ontology ("transaction-level labels are used only to derive alert labels") and needs a new label API. It is consistent with label P2-v1: the maximum per-payment score estimates "did this account touch laundering today" | Decide after step 0 Q-C (are needle cases a large share of unseen positives, and at chance?) |
+| P4-8 | **Levers 1–2 not built; P4-6 closed: transaction labels stay "derive alert labels only" (frozen ontology unchanged)** (Dani 2026-10-16, "go with what you want to do") | Step 0b (§3): payment-max vs step-0 model on new accounts +0.003 AUC, CI [−0.039, +0.045] (inconclusive); without payment format −0.037, CI upper +0.005 (no_signal); inside a positive account the top payment is a laundering one 23.5% vs 14.2% by chance (within-account AUC 0.590). Per-stratum gains are descriptive, not pre-declared, partly the ACH signature, and the maximum over many payments is biased toward busy accounts (needles 0.410) | Go to baselines (rules → logistic regression → LightGBM) under `configs/p4_protocol.yaml` |
+| P4-6 | **Transaction-level labels as training targets: CLOSED by P4-8** | Changes the FROZEN ontology ("transaction-level labels are used only to derive alert labels") and needs a new label API. It is consistent with label P2-v1: the maximum per-payment score estimates "did this account touch laundering today" | Decide after step 0 Q-C (are needle cases a large share of unseen positives, and at chance?) |
 
 ## 2. Step 0 — diagnosis (configs/p4_diagnosis.yaml)
 
@@ -74,3 +78,66 @@ is committed).** Control top-up 0%; 40 seen / 328 unseen positives.
   - real-scale day (1.7M payments, 5,000 alerts incl. 20 hubs × 2,000 senders): 4 s, 2.2 GB peak.
 
 Run (Dani's laptop): `uv run python -m scripts.p4.leg_check`. Commit `docs/p4/p4_leg_check.json`.
+
+**Real-data result (Dani's laptop, 2026-10-16; asserted by `tests/test_p4_results_facts.py` once the
+JSON is committed).** Integrity passed on all 6,730 eval alerts (alert label = max payment label).
+Payments: F1 fit 147,685 sampled (603 laundering), eval 112,084 (277); F2 fit 183,307 (886), eval
+248,632 (501). Unseen positives 328.
+
+| | AUC unseen: payment-max | baseline | gain [95% CI] | verdict |
+|---|---|---|---|---|
+| primary | 0.573 | 0.570 | +0.003 [−0.039, +0.045] | **inconclusive** |
+| without payment format | 0.533 | 0.570 | −0.037 [−0.080, +0.005] | **no_signal** |
+
+- Payment-level AUC on new accounts: F1 0.712, F2 0.783 (laundering payments differ from *other accounts'* payments, mostly by format).
+- Inside 321 positive new accounts: the top payment is a laundering one 0.235 vs chance 0.142; mean within-account AUC 0.590.
+- Strata (descriptive): laundering share < 10% 0.410 vs 0.627; 10–50% 0.667 vs 0.505; ≥ 50% 0.873 vs 0.666; fan-in 0.542 vs 0.578; other rules (n=32) 0.860 vs 0.496; unattributed 0.531 vs 0.556.
+- The baseline here (0.570) averages the seed scores before the AUC; step 0 (0.560) averaged per-seed AUCs. Same models.
+- Decision P4-8 (§1).
+
+## 4. Models (configs/p4_models.yaml)
+
+**Stage `cv` (TRAIN only, folds F1/F2).**
+- **Configurations (18, protocol max 20):**
+  - rules: rule count, and the sum of each fired rule's log-lift;
+  - logistic regression: C ∈ {0.01, 0.1, 1} × {no weighting, balanced};
+  - LightGBM: leaves ∈ {7, 15} × min_child_samples ∈ {50, 200} × {no weighting, balanced}, early-stopped on each fold's eval day (average precision only);
+  - the best logistic and best LightGBM again without payment format.
+- **Reported per configuration:** pooled PR-AUC (all / seen / unseen), train PR-AUC (overfitting gap) and fold spread (stability).
+- **Also reported:** learning curves over 25–100% of fit accounts, and permutation importance on both folds (sign flips counted).
+- **Finalists:** the best per family (3 candidates) plus the two no-format models (report only).
+
+**Stage `validate` (VALIDATION opened once; refused if `docs/p4/p4_validation.json` exists or any config changed after `cv`).**
+- **Fit:** finalists fitted on all of TRAIN (LightGBM trees = mean of the folds' best iterations).
+- **Metrics with 95% account-bootstrap CIs:** PR-AUC, precision at recall 0.8/0.9, recall at 5/10/20% review capacity, Brier (only where the raw score is a probability), ROC-AUC (secondary). Every number is given for all, seen and unseen accounts.
+- **Selection:** the declared protocol rule.
+- **Stop rules, in order:**
+  1. VALIDATION PR-AUC > 0.95;
+  2. one feature > 50% of the explanation (learned models only, since rule scores are R04-dominated by construction);
+  3. any input that is not a registry feature;
+  4. identity guard v2 not cleared on the chosen feature set (folds F1–F3).
+
+  Any stop means no model is saved.
+- **After the stop rules pass:**
+  - cost-based operating point at FN:FP = 20:1 (sensitivities 5:1 and 50:1);
+  - per-typology recall;
+  - SHAP-equivalent contributions in log-odds;
+  - permutation importance;
+  - model saved **by hash** to `models/p4/`, then re-loaded and checked to reproduce its VALIDATION scores;
+  - `docs/p4/MODEL_CARD.md` written.
+- **Line endings:** `.gitattributes` keeps model bytes exact on Windows.
+
+**Evidence (2026-10-16):**
+- metrics match sklearn or a brute force (including ties and row order);
+- every family's contributions sum to its margin;
+- logistic margin matches an independent computation;
+- save/load round trip is exact;
+- tampering, prefixes and CRLF conversion are refused;
+- the selection rule is checked on simulated scores, including the tie;
+- each stop rule is tested;
+- the guard wiring is checked against the frozen evaluator;
+- CV and learning curves hand the eval fold to LightGBM;
+- both stages run end to end on the fixture: VALIDATION read once, nothing saved on a stop, aggregates only;
+- 21 planted bugs caught.
+
+**Real-size timing (synthetic data, this workspace):** 16 configurations × 2 folds 13 s; VALIDATION CIs about 14 s per model.
