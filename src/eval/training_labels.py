@@ -16,7 +16,7 @@ from pathlib import Path
 
 import polars as pl
 
-from src.eval.alert_labels import LABEL_DEFINITION_ID
+from src.eval.alert_labels import KEY_COLS, LABEL_DEFINITION_ID
 
 FIT_PERIODS = ("TRAIN", "VALIDATION", "CALIBRATION")
 
@@ -131,3 +131,31 @@ def load_fit_labels(periods: list[str], variant: str, store_root: Path) -> pl.Da
         .select("alert_id", "period", pl.col("is_true_positive").cast(pl.Int8).alias("y"))
         .sort("alert_id")
     )
+
+
+def load_fit_laundering_txns(
+    periods: list[str], variant: str, interim_dir: Path, split
+) -> pl.DataFrame:
+    """Raw key columns (alert_labels.KEY_COLS, timestamps UTC) of every laundering transaction with
+    period start <= ts < period end, for the requested pre-TEST periods.
+
+    P4 step 0b ONLY (configs/p4_leg_check.yaml, approved by Dani 2026-10-16): payment labels as the
+    target of a DIAGNOSTIC payment model. Dated deviation from the frozen ontology ("transaction
+    labels only derive alert labels"); nothing fitted from these labels is kept. TEST is refused
+    before any file is opened."""
+    periods = _refuse_holdout(periods)
+    rng = [split.periods[p] for p in periods]
+    cond = pl.lit(False)
+    for a, b in rng:
+        cond = cond | ((pl.col("timestamp") >= a) & (pl.col("timestamp") < b))
+    out = (
+        pl.scan_parquet(Path(interim_dir) / f"{variant}_trans.parquet")
+        .select([*KEY_COLS, "is_laundering"])
+        .with_columns(pl.col("timestamp").dt.replace_time_zone("UTC"))
+        .filter(cond & (pl.col("is_laundering") == 1))
+        .select(KEY_COLS)
+        .collect()
+    )
+    if out.height and out.select(KEY_COLS).is_duplicated().any():
+        raise RuntimeError("laundering transactions are not unique by their key columns")
+    return out
