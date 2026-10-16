@@ -1,0 +1,88 @@
+# Phase 4 models: search space, metrics, operating point, stop rules. DECLARED 2026-10-16, BEFORE
+# any P4 model is fitted on real data (the commit date is the evidence). Implements the frozen
+# protocol configs/p4_protocol.yaml (fit on TRAIN only; tune by time-series CV inside TRAIN; open
+# VALIDATION once, <= 5 finalists; simpler model wins unless the gain's CI excludes 0).
+# Approved by Dani 2026-10-16 ("go with what you want to do"). Changing anything below after the
+# first real CV run needs Dani's decision and a dated entry.
+version: 1
+status: DECLARED
+
+feature_sets:
+  all: all_model_features              # the 61 registry features (every P3 group cleared by the guard)
+  no_format: all_model_features_minus_format_mix   # 54: without the ACH generator signature
+
+# ---------------------------------------------------------------- stage cv (TRAIN only)
+cv:
+  folds: [F1, F2]                      # configs/p4_protocol.yaml data_access.tuning.folds
+  families:
+    rules_count: {}                    # score = number of rules fired (no fitting)
+    rules_weighted: {smoothing: 1.0}   # score = sum over fired rules of log(lift) on fit rows, lift =
+                                       # smoothed precision of the rule / fit-row prevalence (a rule with
+                                       # lift > 1 adds to the score; logit(precision) would subtract)
+    logistic:                          # L2; x -> sign(x) log1p|x|, standardised on fit rows; NaN -> 0 after scaling + missing flag
+      C: [0.01, 0.1, 1.0]
+      class_weight: [none, balanced]
+      max_iter: 5000
+    lightgbm:
+      grid:
+        num_leaves: [7, 15]
+        min_child_samples: [50, 200]
+        class_weight: [none, balanced]
+      fixed: {learning_rate: 0.05, n_estimators: 2000, subsample: 0.8, subsample_freq: 1,
+              colsample_bytree: 0.8, reg_lambda: 1.0}
+      early_stopping_rounds: 100       # on each fold's eval day (the time-later fold)
+      metric: average_precision        # the only LightGBM metric, so early stopping cannot use another
+  sensitivity: [logistic, lightgbm]    # each family's best config refitted on feature set no_format
+  # 2 + 6 + 8 + 2 = 18 configurations (protocol max 20); the count actually run is recorded.
+  within_family_choice: highest pooled CV PR-AUC; ties -> simpler (no weighting, smaller C, fewer leaves, larger min_child_samples)
+  learning_curve:
+    fractions: [0.25, 0.5, 0.75, 1.0]  # of fit ACCOUNTS, chosen by keyed hash (never by ID order, D5)
+    sample_key: p4_learning_curve
+  permutation_importance: {repeats: 5, seed: 20261016}   # on each fold's eval day; report only
+
+# Finalists (fixed by the CV stage, written before VALIDATION is opened):
+#   selection candidates (configs/p4_protocol.yaml simplicity_order): best rules family, best
+#   logistic, best lightgbm  -> 3
+#   report-only sensitivity: best logistic and best lightgbm on no_format -> 2   (total 5)
+
+# ---------------------------------------------------------------- stage validate (opened once)
+validate:
+  final_fit: TRAIN (all four days); lightgbm n_estimators = mean of the two folds' best iterations
+  bootstrap: {unit: account, n_boot: 2000, seed: 20261016, ci: 0.95}   # VALIDATION is one day: one row per account
+  metrics:
+    primary: pr_auc
+    precision_at_recall: [0.8, 0.9]
+    review_capacity_share: [0.05, 0.10, 0.20]   # top share of the day's alerts an analyst team can review; 0.10 is the headline
+    brier: raw score (flagged "not a probability" for class-weighted models; P5 recalibrates)
+    secondary: roc_auc
+    report_for: [all, seen, unseen]   # seen = account alerted in TRAIN (the model's fit rows)
+  # Cost-based operating point (an evaluation device; in the product thresholds belong to compliance).
+  # FN : FP = 20 : 1. A false positive costs one analyst review; a missed laundering account-day
+  # lets an active scheme continue and carries regulatory exposure. Published AML cost ratios vary
+  # widely, so 5 : 1 and 50 : 1 are reported as sensitivities. Note label P2-v1 counts coincidental
+  # positives (71.6% / 58.7%), so FN costs are an upper bound per positive.
+  cost_ratio_fn_fp: 20
+  cost_ratio_sensitivity: [5, 50]
+  per_typology_recall: at the cost threshold and at the 10% capacity (n shown; < 15 positives -> no claim)
+  explain:
+    method: lightgbm pred_contrib / logistic coef x standardised value (exact, additive)
+    output_space: log-odds margin of the uncalibrated model   # NOT probability units
+    top_k: 10
+  stop_rules:                          # checked in this order; any hit -> no model is saved, back to Dani
+    validation_pr_auc_above: 0.95      # P4 task 7: implausibly high
+    top_feature_share_of_abs_contribution_above: 0.5   # one feature dominates; learned families only
+                                       # (logistic, lightgbm): a rule score is dominated by R04 fan-in
+                                       # by construction (80% of true alerts), which is not leakage
+    feature_not_in_registry: true      # identifier-like or unregistered input
+    identity_guard_v2_not_cleared: true   # configs/p3_identity_guard.yaml: base = rule group, with = the
+                                       # chosen feature set, chosen family and params; folds F1-F3
+                                       # (F3 eval = VALIDATION, same session); not applicable to rule scores
+  permutation_importance: {repeats: 5, seed: 20261016}   # chosen learned model on VALIDATION; report only
+  reopen: refused if docs/p4/p4_validation.json exists (VALIDATION is opened once)
+
+save:
+  dir: models/p4                       # committed; the Scoring tool loads by hash only
+  file: "model_{sha16}.json"           # one file: family, feature names, preprocessing, fitted parameters
+  hash: sha256 of the file bytes        # = ScoreResult.model_version_hash
+  max_bytes: 1500000                   # pre-commit blocks files > 2 MB
+  card: docs/p4/MODEL_CARD.md
