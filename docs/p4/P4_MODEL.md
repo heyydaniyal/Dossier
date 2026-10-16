@@ -10,6 +10,10 @@ laptop (`docs/p4/p4_diagnosis.json` first).
 | `src/models/diagnostics.py` | step 0, label-free |
 | `src/eval/training_labels.py` | `load_fit_strata`: reporting strata built inside the eval module; refuses TEST |
 | `scripts/p4/diagnose.py` | step 0 driver: TRAIN only, aggregates only |
+| `configs/p4_leg_check.yaml` | step 0b protocol and verdict, **declared before the real run** |
+| `src/features/legs.py` | payment-level features, point-in-time, label-free |
+| `src/models/leg_check.py` | step 0b analysis, label-free |
+| `scripts/p4/leg_check.py` | step 0b driver: TRAIN only, aggregates only |
 
 ## 1. Decisions (validated 2026-10-16 before implementing; approved by Dani: "push ok go ahead")
 
@@ -20,6 +24,7 @@ laptop (`docs/p4/p4_diagnosis.json` first).
 | P4-3 | **LightGBM 4.7.0** (exact pin) | Adds 1 package (3.3 MB), with a Windows wheel in `uv.lock`. Early stopping uses the eval set we pass (the time-later fold). sklearn's HistGradientBoosting uses a *random* internal hold-out for early stopping and has **no row subsampling** (tasks 3 and 5 need both). Predictions are identical with 1 and 2 threads. Native `pred_contrib` equals shap's TreeExplainer exactly. **Correction:** shap also explains HistGradientBoosting exactly (additivity error 1e-14), so SHAP alone was not a reason; shap would add numba, llvmlite and pandas | Holds. `tests/test_p4_protocol.py` pins thread determinism, eval-fold early stopping and log-odds additivity for the pinned version |
 | P4-4 | **Tune inside TRAIN; open VALIDATION once**, at most 5 finalists, with a declared rule: the simpler model wins unless the PR-AUC gain's paired account-bootstrap 95% CI excludes 0 | Simulation at 213 positives / 4,158 alerts: one look carries ±17–25% noise; best of 5 configs is 6–13% optimistic, best of 20 is 7–19%; two models are ranked correctly unless their true gap is below ≈ 0.03 PR-AUC. The simulation assumes independent rows, so the real spread is wider (accounts cluster). VALIDATION was already used in P2 (revision-2 count, KYC checks) and in the P3 guard (fold F3); this is allowed and listed in the protocol | Holds. `configs/p4_protocol.yaml` |
 | P4-5 | **`scripts/p4` gets exactly the `scripts/p3` label-access allowance** (`src.eval.training_labels`, `src.eval.identity_guard`) | 4 planted widenings caught: one extra module, the whole `src.eval`, the driver importing the label builder, the label-free model module importing labels. `scripts/p5` is not granted ahead of time | Holds. `tests/test_eval_isolation.py` |
+| P4-7 | **Step 0b: one-off use of transaction-level labels as the target of a DIAGNOSTIC payment model, TRAIN only** (approved by Dani 2026-10-16, "ok, lets go for your recommendation") | Step 0 Q-C contradicted the needle hypothesis (below). Before building levers 1–2 or deciding P4-6, test whether laundering payments of NEW accounts differ from normal ones at all | Dated deviation from the frozen ontology, scoped to this check: `src/eval/training_labels.load_fit_laundering_txns` refuses TEST; nothing fitted is kept; aggregates only |
 | P4-6 | **Transaction-level labels as training targets: PENDING** | Changes the FROZEN ontology ("transaction-level labels are used only to derive alert labels") and needs a new label API. It is consistent with label P2-v1: the maximum per-payment score estimates "did this account touch laundering today" | Decide after step 0 Q-C (are needle cases a large share of unseen positives, and at chance?) |
 
 ## 2. Step 0 — diagnosis (configs/p4_diagnosis.yaml)
@@ -35,3 +40,37 @@ laptop (`docs/p4/p4_diagnosis.json` first).
 - **Evidence:** 22 planted bugs caught in step 0 code and tests; metrics equal sklearn; the driver runs end to end on the fixture; the output holds aggregates only.
 
 Run (Dani's laptop): `uv sync`, then `uv run python -m scripts.p4.diagnose`. Commit `docs/p4/p4_diagnosis.json`.
+
+**Real-data result (Dani's laptop, 2026-10-16; numbers to be asserted by a facts test once the JSON
+is committed).** Control top-up 0%; 40 seen / 328 unseen positives.
+
+| Features | AUC seen: full / control / disjoint | label memory | AUC unseen | share of the seen gap lost without own rows | verdict |
+|---|---|---|---|---|---|
+| rule (19) | 0.923 / 0.921 / 0.782 | 0.884 | 0.512 [0.485, 0.540] | 34% (control−disjoint CI 0.091–0.183) | mixed |
+| all (61) | 0.965 / 0.970 / 0.918 | 0.884 | 0.560 [0.534, 0.586] | 13% (CI 0.034–0.071) | mixed |
+
+- Reading: the seen-account advantage is mostly a **population** difference (accounts alerted on several days are an easier population even when the model never saw them: disjoint 0.918), with a smaller **recognition** part. "Mixed" rather than "population" only because the CI upper (0.071) exceeds 0.05.
+- Q-B: no feature has an unseen CI lower bound > 0.55 (best amt_std_usd 0.551); the model (0.560) already matches the best single feature → no under-use.
+- Q-C (unseen positives 328): fan-in 90% (AUC 0.569); unattributed laundering 88% (0.549); laundering share < 10% n=140 AUC 0.612; 10–50% n=162 **0.500**; ≥ 50% n=26 0.656; typologies n ≤ 9 each.
+- The declared Q-C reading did not anticipate this pattern (needles above chance, the middle at chance). It contradicts the needle hypothesis behind lever 1 → step 0b.
+
+## 3. Step 0b — per-payment signal (configs/p4_leg_check.yaml)
+
+- **Question:** on a new account's laundering day, do its laundering payments look different from its normal payments?
+- **Payment features** (`src/features/legs.py`, same 24 h point-in-time window): amount, direction, cross-currency, cross-bank, near-threshold and round (frozen P2 definitions), ratio to the account's median payment, share of its volume, its number of payments; counterparty context that day (lever 2): the counterparty's payments, distinct receivers and senders, payments in the pair, how often the exact amount appears; payment format (reported with and without). No hour, weekday or identifier.
+- **Model:** LightGBM, fixed (untuned) parameters, fitted on the fit days' payments with payment labels; normal payments capped at 300 per alert by keyed hash, re-weighted.
+- **Score:** each eval-day alert = its maximum payment score (lever 1's best case); compared paired with the step-0 model on the same UNSEEN alerts.
+- **Verdict (declared):** gain CI lower ≥ 0.03 AUC → `signal` (P4-6 returns with numbers; levers 1–2 worth building); CI upper < 0.03 → `no_signal` (levers 1–2 and P4-6 closed with evidence); else `inconclusive`.
+- **Integrity:** every eval alert's label must equal the maximum of its payment labels (the run stops otherwise).
+- **Evidence:**
+  - known-answer payment features;
+  - deletion, outside-window mutation and inside-window control;
+  - label loader TRAIN-scoped and refusing TEST;
+  - sampling order-independent and re-weighted;
+  - simulated worlds (signal: payment-max 0.926 vs baseline 0.557, top payment laundering 0.89 vs chance 0.13; no signal: within-alert AUC 0.53) both classified correctly;
+  - perfect seen-account scores cannot create a signal;
+  - driver end to end on the fixture;
+  - 15 planted bugs caught;
+  - real-scale day (1.7M payments, 5,000 alerts incl. 20 hubs × 2,000 senders): 4 s, 2.2 GB peak.
+
+Run (Dani's laptop): `uv run python -m scripts.p4.leg_check`. Commit `docs/p4/p4_leg_check.json`.

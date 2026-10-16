@@ -1,0 +1,49 @@
+# Phase 4, step 0b: per-payment (leg-level) signal check. DECLARED 2026-10-16, BEFORE any
+# real-data run (the commit date is the evidence). Approved by Dani 2026-10-16 ("ok, lets go for
+# your recommendation"), including the one-off use of TRANSACTION-LEVEL labels below.
+#
+# Why: step 0 Q-C showed new-account positives where 10-50% of the day's payments are laundering
+# ranked at chance (AUC 0.500, n=162). If laundering payments look like the same accounts' normal
+# payments, no per-payment lever (lever 1 max-over-payments, lever 2 counterparty context) and no
+# training on transaction labels (decision P4-6) can help new accounts.
+#
+# Frozen-ontology note: "transaction-level labels are used only to derive alert labels". Here they
+# are the TARGET of a diagnostic payment model, TRAIN only. Nothing fitted here is saved or used
+# by any later phase; only aggregates are written. Dated deviation, scoped to this check.
+version: 1
+status: DECLARED
+
+folds: [F1, F2]      # configs/p3_identity_guard.yaml; TRAIN days only. VALIDATION/CAL/TEST never read
+
+# Payment model (fixed, NOT tuned: tuning would need another look at the eval day).
+model:
+  library: lightgbm   # configs/p4_protocol.yaml library block (pinned 4.7.0, deterministic)
+  params: {objective: binary, learning_rate: 0.05, n_estimators: 300, num_leaves: 31,
+           min_child_samples: 50, subsample: 0.8, subsample_freq: 1, colsample_bytree: 0.8,
+           reg_lambda: 1.0}
+  # Fit rows: every laundering leg of the fit days' alerts, plus at most this many normal legs
+  # per alert, chosen by keyed hash of the transaction (never by ID or file order, D5) and
+  # re-weighted by 1 / sampling rate. Eval rows: ALL legs of the eval day's alerts.
+  max_normal_legs_per_alert: 300
+  sample_key: p4_leg_sample
+
+# Alert score from payments = the maximum payment score of the alert (lever 1's best case: it is
+# trained with exact payment labels, which lever 1 would not have).
+# Baseline = the step-0 full model (HistGradientBoosting, 61 alert features, mean over the
+# configs/p4_diagnosis.yaml seeds) on the SAME unseen eval alerts. Comparison is paired.
+comparison:
+  subset: unseen                 # eval-day alerts of accounts absent from the fold's fit rows
+  n_boot: 2000
+  boot_seed: 20261016
+  ci: 0.95
+  material_gain_auc: 0.03
+
+# Verdict (pooled positive-weighted AUC gain = payment-max minus baseline; paired bootstrap):
+#   signal       : CI lower >= 0.03  -> decision P4-6 returns to Dani with these numbers;
+#                                       levers 1-2 are worth building
+#   no_signal    : CI upper <  0.03  -> levers 1-2 and P4-6 closed with evidence; go to baselines
+#   inconclusive : otherwise         -> go to baselines; report
+# Also reported (not deciding): the same without payment-format features (generator signature);
+# per laundering-share stratum; inside each positive unseen alert, how often the top-scored payment
+# is a laundering one vs the chance rate, and the mean within-alert AUC.
+min_pos_unseen: 30
