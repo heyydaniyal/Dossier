@@ -24,6 +24,8 @@ from sklearn.neighbors import KNeighborsClassifier
 from src.eval import training_labels as tl
 from src.models import diagnostics as dg
 
+CFG = {"max_control_shortfall": 0.25}  # = configs/p4_diagnosis.yaml (checked below)
+
 # ------------------------------------------------------------------ simulated worlds
 
 
@@ -66,7 +68,9 @@ def _lr(seed):
 
 def test_probe_detects_recognition():
     f = _world("recognition", seed=1)
-    r = dg.recognition_probe([f], _knn, [0], n_boot=300, boot_seed=1, ci=0.95, min_seen_pos=30)
+    r = dg.recognition_probe(
+        [f], _knn, [0], n_boot=300, boot_seed=1, ci=0.95, min_seen_pos=30, **CFG
+    )
     p = r["pooled"]
     assert p["full"] > 0.95 and p["control"] > 0.95
     assert abs(p["disjoint"] - 0.5) < 0.1
@@ -76,7 +80,9 @@ def test_probe_detects_recognition():
 
 def test_probe_detects_population_difference():
     f = _world("population", seed=2)
-    r = dg.recognition_probe([f], _lr, [0], n_boot=300, boot_seed=2, ci=0.95, min_seen_pos=30)
+    r = dg.recognition_probe(
+        [f], _lr, [0], n_boot=300, boot_seed=2, ci=0.95, min_seen_pos=30, **CFG
+    )
     p = r["pooled"]
     assert p["full"] > 0.8 and p["disjoint"] > 0.8
     assert p["unseen_full"] < p["disjoint"] - 0.2  # busy accounts not active in the fit days carry
@@ -86,7 +92,9 @@ def test_probe_detects_population_difference():
 
 def test_probe_reports_insufficient_data_when_seen_positives_are_few():
     f = _world("population", seed=3)
-    r = dg.recognition_probe([f], _lr, [0], n_boot=50, boot_seed=3, ci=0.95, min_seen_pos=10**6)
+    r = dg.recognition_probe(
+        [f], _lr, [0], n_boot=50, boot_seed=3, ci=0.95, min_seen_pos=10**6, **CFG
+    )
     assert r["verdict"] == "insufficient_data"
 
 
@@ -94,12 +102,89 @@ def test_control_arm_removes_the_same_rows_and_positives_outside_the_eval_accoun
     f = _world("recognition", seed=4)
     s = dg.fold_scores(f, _knn, [0], seed_base=4)
     own = np.isin(f.acct_fit, f.acct_eval[f.seen])
-    assert s["removed"] == {"rows": int(own.sum()), "positives": int(f.y_fit[own].sum())}
+    assert s["removed"] == {
+        "rows": int(own.sum()),
+        "positives": int(f.y_fit[own].sum()),
+        "control_positives_from_own_rows": 0,
+    }
     n_pos = s["removed"]["positives"]
-    rm = dg._control_rows(f, n_pos, s["removed"]["rows"] - n_pos, np.random.default_rng(0))
+    rm, short = dg._control_rows(f, n_pos, s["removed"]["rows"] - n_pos, np.random.default_rng(0))
+    assert short == 0
     assert len(set(rm.tolist())) == s["removed"]["rows"]
     assert not np.isin(f.acct_fit[rm], f.acct_eval).any()
     assert int(f.y_fit[rm].sum()) == s["removed"]["positives"]
+
+
+def _repeat_launderer_world(seed: int, signal: str):
+    """Seen eval accounts hold 150 of 170 fit positives; only 20 positives lie on accounts absent
+    from the eval day, so the matched control cannot be built from them alone (the first version
+    crashed here). signal: 'fingerprint' (recognition) or 'day' (population)."""
+    rng = np.random.default_rng(seed)
+    nf, ne = 3000, 1000
+    kf = np.array([f"a{i}" for i in range(nf)], dtype=object)
+    finger = rng.normal(size=(nf, 3))
+    yf = np.zeros(nf, int)
+    yf[:150] = 1
+    yf[2900:2920] = 1
+    ke = np.concatenate([kf[:300], np.array([f"n{i}" for i in range(ne - 300)], dtype=object)])
+    if signal == "fingerprint":  # the same accounts launder again; features = stable fingerprint
+        Xf = finger + 0.01 * rng.normal(size=finger.shape)
+        Xe = np.vstack([finger[:300], rng.normal(size=(ne - 300, 3))])
+        ye = np.r_[yf[:300], (rng.random(ne - 300) < 0.06).astype(int)]
+    else:  # labels follow the day's own features, for everyone
+        Xf = rng.normal(size=(nf, 3))
+        yf = (rng.random(nf) < 1 / (1 + np.exp(-(-3.0 + 2.5 * Xf[:, 0])))).astype(int)
+        yf[:150] = 1
+        yf[300:] = 0  # as in the fingerprint world: only 20 positives outside the eval accounts
+        yf[2900:2920] = 1
+        Xf[:150, 0] += 1.5
+        Xf[2900:2920, 0] += 1.5
+        Xe = rng.normal(size=(ne, 3))
+        ye = (rng.random(ne) < 1 / (1 + np.exp(-(-3.0 + 2.5 * Xe[:, 0])))).astype(int)
+    return dg.FoldData("R", Xf, yf, kf, Xe, ye, ke)
+
+
+def test_control_arm_never_crashes_and_records_the_top_up():
+    f = _repeat_launderer_world(0, "fingerprint")
+    s = dg.fold_scores(f, _knn, [0, 1], seed_base=0)
+    own = np.isin(f.acct_fit, f.acct_eval[f.seen])
+    need = int(f.y_fit[own].sum())
+    outside = int(f.y_fit[~np.isin(f.acct_fit, f.acct_eval)].sum())
+    assert s["removed"]["positives"] == need
+    assert s["removed"]["control_positives_from_own_rows"] == need - outside > 0
+    rm, short = dg._control_rows(f, need, s["removed"]["rows"] - need, np.random.default_rng(3))
+    assert len(set(rm.tolist())) == s["removed"]["rows"] and int(f.y_fit[rm].sum()) == need
+    assert short == need - outside
+
+
+def test_recognition_survives_a_large_top_up():
+    """The top-up biases control toward disjoint (against recognition): strong recognition must
+    still be called recognition."""
+    f = _repeat_launderer_world(1, "fingerprint")
+    r = dg.recognition_probe(
+        [f], _knn, [0], n_boot=300, boot_seed=1, ci=0.95, min_seen_pos=30, **CFG
+    )
+    assert r["control_shortfall_share"] > 0.25
+    assert r["verdict"] == "recognition"
+
+
+def test_other_verdicts_become_control_unmatched_with_a_large_top_up():
+    f = _repeat_launderer_world(2, "day")
+    r = dg.recognition_probe(
+        [f], _lr, [0], n_boot=300, boot_seed=2, ci=0.95, min_seen_pos=30, **CFG
+    )
+    assert r["control_shortfall_share"] > 0.25
+    assert r["verdict"] == "control_unmatched"
+    r2 = dg.recognition_probe(
+        [f], _lr, [0], n_boot=300, boot_seed=2, ci=0.95, min_seen_pos=30, max_control_shortfall=1.0
+    )
+    assert r2["verdict"] != "control_unmatched"
+
+
+def test_cfg_matches_the_declared_config():
+    from scripts.p4.diagnose import load_config
+
+    assert load_config()["recognition"]["max_control_shortfall"] == CFG["max_control_shortfall"]
 
 
 @pytest.mark.parametrize(
@@ -132,7 +217,9 @@ def test_pure_noise_world_is_no_gap():
     f = dg.FoldData("N", rng.normal(size=(4000, 3)), (rng.random(4000) < 0.05).astype(int),
                     keys[:4000], rng.normal(size=(3000, 3)), (rng.random(3000) < 0.05).astype(int),
                     np.concatenate([keys[:1500], keys[4000:5500]]))  # fmt: skip
-    r = dg.recognition_probe([f], _lr, [0], n_boot=300, boot_seed=9, ci=0.95, min_seen_pos=30)
+    r = dg.recognition_probe(
+        [f], _lr, [0], n_boot=300, boot_seed=9, ci=0.95, min_seen_pos=30, **CFG
+    )
     assert r["verdict"] == "no_gap"
 
 
@@ -281,6 +368,7 @@ def p4_fix(p2_run, tmp_path_factory, monkeypatch_module):
     cfg["recognition"] |= {"n_boot": 20, "min_seen_pos": 1}
     cfg["univariate"] |= {"n_boot": 10}
     cfg["strata"]["min_stratum_pos"] = 1
+    cfg["recognition"]["max_control_shortfall"] = 0.123  # must reach the probe unchanged
     import yaml
 
     cpath = out / "diag.yaml"
@@ -299,13 +387,22 @@ def p4_fix(p2_run, tmp_path_factory, monkeypatch_module):
         return real(periods, *a, **k)
 
     monkeypatch_module.setattr(diagnose, "load_fit_strata", spy)
+    probe_kwargs = []
+    real_probe = diagnose.dg.recognition_probe
+
+    def probe_spy(*a, **k):
+        probe_kwargs.append(k)
+        return real_probe(*a, **k)
+
+    monkeypatch_module.setattr(diagnose.dg, "recognition_probe", probe_spy)
     args = [
         "--variant", "FIX", "--config", str(cpath), "--features-root", str(out / "p3"),
         "--store-root", str(r / "out"), "--p3-results", str(out / "p3.json"),
         "--results", str(out / "diag.json"), "--rules", str(p2_run["cp"].rules),
         "--thresholds", str(p2_run["configs"] / "p2_rule_thresholds.yaml"),
     ]  # fmt: skip
-    return {"args": args, "out": out, "periods": seen_periods, "diagnose": diagnose}
+    return {"args": args, "out": out, "periods": seen_periods, "diagnose": diagnose,
+            "probe_kwargs": probe_kwargs}  # fmt: skip
 
 
 @pytest.fixture(scope="module")
@@ -320,11 +417,20 @@ def test_driver_end_to_end_on_fixture(p4_fix):
     assert d.main(p4_fix["args"]) == 0
     doc = json.loads((p4_fix["out"] / "diag.json").read_text(encoding="utf-8"))
     assert p4_fix["periods"] and all(p == ["TRAIN"] for p in p4_fix["periods"])
+    assert p4_fix["probe_kwargs"]
+    assert all(k["max_control_shortfall"] == 0.123 for k in p4_fix["probe_kwargs"])
     assert doc["inputs"]["periods_read"] == ["TRAIN"]
     assert set(doc["recognition"]) == {"rule", "all"}
     assert doc["inputs"]["n_features"]["all"] > doc["inputs"]["n_features"]["rule"]
     for r in doc["recognition"].values():
-        assert r["verdict"] in {"no_gap", "recognition", "population", "mixed", "insufficient_data"}
+        assert r["verdict"] in {
+            "no_gap",
+            "recognition",
+            "population",
+            "mixed",
+            "insufficient_data",
+            "control_unmatched",
+        }
         assert [x["fold"] for x in r["per_fold"]] == ["F1", "F2"]
     assert doc["univariate"]["n_features"] == doc["inputs"]["n_features"]["all"]
     assert doc["strata"]["total_unseen_pos"] >= 1

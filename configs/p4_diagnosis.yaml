@@ -39,6 +39,13 @@ recognition:
   #                 (removing the account's own rows changes little; seen accounts stay separable)
   #   mixed       : otherwise
   min_seen_pos: 30              # fewer pooled seen positives -> verdict "insufficient_data"
+  # Control-arm matching (added 2026-10-16, BEFORE any real run; a known-answer test showed the
+  # first version crashed when repeat launderers hold most fit positives). If too few positives
+  # exist outside the eval accounts, the shortfall is drawn from the seen accounts' own rows. That
+  # biases control toward disjoint = AGAINST recognition, so a "recognition" verdict stands; any
+  # other verdict becomes "control_unmatched" when more than this share of the control's removed
+  # positives came from own rows.
+  max_control_shortfall: 0.25
 
 # Q-B  Univariate signal on unseen accounts. Per feature, per fold: AUC with NaN ranked lowest;
 # pooled positive-weighted; 95% account-bootstrap CI. Reported with its orientation. Many features

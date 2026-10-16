@@ -110,18 +110,33 @@ def _fit_scores(factory: ModelFactory, seed: int, X, y, X_eval) -> np.ndarray:
     return m.predict_proba(X_eval)[:, 1]
 
 
-def _control_rows(f: FoldData, n_pos: int, n_neg: int, rng: np.random.Generator) -> np.ndarray:
-    """Fit-row indices to REMOVE for the control arm: n_pos positives and n_neg negatives from
-    accounts that are absent from the eval day."""
+def _control_rows(
+    f: FoldData, n_pos: int, n_neg: int, rng: np.random.Generator
+) -> tuple[np.ndarray, int]:
+    """Fit-row indices to REMOVE for the control arm: n_pos positives and n_neg negatives, drawn
+    from accounts that are absent from the eval day. If that pool is too small (repeat launderers
+    can hold most fit positives), the shortfall is drawn from the seen eval accounts' OWN rows.
+    That makes control closer to disjoint, i.e. biased AGAINST a recognition verdict (conservative),
+    and the shortfall is returned so the verdict can refuse a badly matched control.
+    Returns (indices, positives drawn from own rows)."""
     eval_accts = set(f.acct_eval.tolist())
     pool = np.array([a not in eval_accts for a in f.acct_fit.tolist()], dtype=bool)
-    pos = np.flatnonzero(pool & (f.y_fit == 1))
-    neg = np.flatnonzero(pool & (f.y_fit == 0))
-    if len(pos) < n_pos or len(neg) < n_neg:
-        raise ValueError(f"{f.name}: not enough rows outside the eval accounts for the control arm")
-    return np.concatenate(
-        [rng.choice(pos, n_pos, replace=False), rng.choice(neg, n_neg, replace=False)]
-    )
+    seen_accts = set(f.acct_eval[f.seen].tolist())
+    own = np.array([a in seen_accts for a in f.acct_fit.tolist()], dtype=bool)
+    picks, short_pos = [], 0
+    for cls, n in ((1, n_pos), (0, n_neg)):
+        first = np.flatnonzero(pool & (f.y_fit == cls))
+        take = rng.choice(first, min(n, len(first)), replace=False)
+        rest = n - len(take)
+        if rest:
+            backup = np.flatnonzero(own & (f.y_fit == cls))
+            if len(backup) < rest:
+                raise ValueError(f"{f.name}: cannot match the control arm even with own rows")
+            take = np.concatenate([take, rng.choice(backup, rest, replace=False)])
+            if cls == 1:
+                short_pos = rest
+        picks.append(take)
+    return np.concatenate(picks), short_pos
 
 
 def _label_memory(f: FoldData) -> np.ndarray:
@@ -140,15 +155,21 @@ def fold_scores(f: FoldData, factory: ModelFactory, seeds: list[int], seed_base:
     own = np.array([a in seen_accts for a in f.acct_fit.tolist()], dtype=bool)
     n_pos_rm, n_neg_rm = int((own & (f.y_fit == 1)).sum()), int((own & (f.y_fit == 0)).sum())
     out: dict[str, list[np.ndarray]] = {"full": [], "disjoint": [], "control": []}
+    shortfalls: list[int] = []
     for i, seed in enumerate(seeds):
         out["full"].append(_fit_scores(factory, seed, f.X_fit, f.y_fit, f.X_eval))
         keep = ~own
         out["disjoint"].append(_fit_scores(factory, seed, f.X_fit[keep], f.y_fit[keep], f.X_eval))
-        rm = _control_rows(f, n_pos_rm, n_neg_rm, np.random.default_rng(seed_base + i))
+        rm, short = _control_rows(f, n_pos_rm, n_neg_rm, np.random.default_rng(seed_base + i))
+        shortfalls.append(short)
         keep = np.ones(len(f.y_fit), dtype=bool)
         keep[rm] = False
         out["control"].append(_fit_scores(factory, seed, f.X_fit[keep], f.y_fit[keep], f.X_eval))
-    out["removed"] = {"rows": n_pos_rm + n_neg_rm, "positives": n_pos_rm}
+    out["removed"] = {
+        "rows": n_pos_rm + n_neg_rm,
+        "positives": n_pos_rm,
+        "control_positives_from_own_rows": max(shortfalls) if shortfalls else 0,
+    }
     return out
 
 
@@ -179,6 +200,8 @@ def recognition_probe(
     ci: float,
     min_seen_pos: int,
     scores: dict[str, dict] | None = None,
+    *,
+    max_control_shortfall: float,  # required: configs/p4_diagnosis.yaml, no hidden default
 ) -> dict:
     scores = scores or {f.name: fold_scores(f, factory, seeds, boot_seed) for f in folds}
     per_fold, w_seen, w_unseen = [], [], []
@@ -262,6 +285,9 @@ def recognition_probe(
     out["control_minus_disjoint"] = (
         None if p["control"] is None or p["disjoint"] is None else p["control"] - p["disjoint"]
     )
+    removed = sum(scores[f.name]["removed"]["positives"] for f in folds)
+    short = sum(scores[f.name]["removed"]["control_positives_from_own_rows"] for f in folds)
+    out["control_shortfall_share"] = short / removed if removed else 0.0
     if out["n_seen_pos"] < min_seen_pos or out["n_boot_undefined"] > 0.01 * n_boot:
         out["verdict"] = "insufficient_data"
     else:
@@ -269,6 +295,13 @@ def recognition_probe(
             out["ci"]["control_minus_disjoint"], p["disjoint"], out["ci"]["disjoint"],
             p["control"], p["unseen_full"], out["ci"]["control"],
         )  # fmt: skip
+        # a top-up from own rows biases control TOWARD disjoint, i.e. AGAINST recognition: a
+        # recognition verdict survives it; any other verdict is not trusted if the top-up is large
+        if (
+            out["control_shortfall_share"] > max_control_shortfall
+            and out["verdict"] != "recognition"
+        ):
+            out["verdict"] = "control_unmatched"
     return out
 
 

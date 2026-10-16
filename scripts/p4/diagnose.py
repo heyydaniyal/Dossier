@@ -137,7 +137,7 @@ def run(a: argparse.Namespace) -> dict:
         scores = {f.name: dg.fold_scores(f, factory, seeds, rc["boot_seed"]) for f in folds}
         out["recognition"][name] = dg.recognition_probe(
             folds, factory, seeds, rc["n_boot"], rc["boot_seed"], rc["ci"], rc["min_seen_pos"],
-            scores=scores,
+            scores=scores, max_control_shortfall=rc["max_control_shortfall"],
         )  # fmt: skip
         print(f"recognition [{name}]: {out['recognition'][name]['verdict']}", flush=True)
         if name == "all":
@@ -159,6 +159,7 @@ def summary(doc: dict) -> str:
     for name, r in doc["recognition"].items():
         p, c = r["pooled"], r["ci"]
         lines.append(f"Q-A [{name}] verdict={r['verdict']}  seen pos={r['n_seen_pos']}  "
+                     f"control top-up {r['control_shortfall_share']:.0%}  "
                      f"unseen pos={r['n_unseen_pos']}")  # fmt: skip
         lines.append(f"   AUC seen: full {f(p['full'])}  control {f(p['control'])}  "
                      f"disjoint {f(p['disjoint'])}  "
