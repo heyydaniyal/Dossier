@@ -1,0 +1,200 @@
+{
+  "inputs": {
+    "config_sha256": "7c7dfbb7a281cd2ce7a0047b03b4df7acbacc70102033959e5fd56437794bdea",
+    "protocol_sha256": "ed8329421ec37a8fdd78f7f6b041c8d61842d08c272dbb1d69756d72eb76e332",
+    "train_parquet_sha256": "a0a1d1880addca8c6f19ca602ff59254d770a4d20a9746917293a6b7896101da",
+    "periods_read": [
+      "TRAIN"
+    ],
+    "leg_features": [
+      "log10_usd",
+      "is_out",
+      "cross_currency",
+      "cross_bank",
+      "near_threshold",
+      "round_amount",
+      "log10_ratio_to_account_median",
+      "share_of_account_volume",
+      "log10_account_n_legs",
+      "log10_cp_n_legs",
+      "log10_cp_out_deg",
+      "log10_cp_in_deg",
+      "log10_pair_n_txn",
+      "log10_same_amount_n",
+      "leg_fmt_cheque",
+      "leg_fmt_credit_card",
+      "leg_fmt_ach",
+      "leg_fmt_cash",
+      "leg_fmt_reinvestment",
+      "leg_fmt_wire",
+      "leg_fmt_bitcoin"
+    ],
+    "lightgbm_version": "4.7.0"
+  },
+  "counts": [
+    {
+      "fold": "F1",
+      "fit_alerts": 11383,
+      "fit_legs_sampled": 147685,
+      "fit_positive_payments": 603,
+      "eval_alerts": 2621,
+      "eval_legs": 112084,
+      "eval_positive_payments": 277
+    },
+    {
+      "fold": "F2",
+      "fit_alerts": 13924,
+      "fit_legs_sampled": 183307,
+      "fit_positive_payments": 886,
+      "eval_alerts": 4109,
+      "eval_legs": 248632,
+      "eval_positive_payments": 501
+    }
+  ],
+  "primary": {
+    "per_fold": [
+      {
+        "fold": "F1",
+        "n_unseen": 2251,
+        "pos_unseen": 154,
+        "auc_payment_max": 0.5566532894859075,
+        "auc_baseline": 0.5570511986821
+      },
+      {
+        "fold": "F2",
+        "n_unseen": 2443,
+        "pos_unseen": 174,
+        "auc_payment_max": 0.5882522048803717,
+        "auc_baseline": 0.5813982057010278
+      }
+    ],
+    "n_unseen_pos": 328,
+    "auc_payment_max": 0.573416128750044,
+    "auc_baseline": 0.5699669889909215,
+    "gain": 0.0034491397591225326,
+    "gain_ci": [
+      -0.03923544638354926,
+      0.04499902122211252
+    ],
+    "n_boot_undefined": 0,
+    "verdict": "inconclusive"
+  },
+  "without_payment_format": {
+    "per_fold": [
+      {
+        "fold": "F1",
+        "n_unseen": 2251,
+        "pos_unseen": 154,
+        "auc_payment_max": 0.5209266174931411,
+        "auc_baseline": 0.5570511986821
+      },
+      {
+        "fold": "F2",
+        "n_unseen": 2443,
+        "pos_unseen": 174,
+        "auc_payment_max": 0.5435543026195144,
+        "auc_baseline": 0.5813982057010278
+      }
+    ],
+    "n_unseen_pos": 328,
+    "auc_payment_max": 0.5329303285053025,
+    "auc_baseline": 0.5699669889909215,
+    "gain": -0.03703666048561893,
+    "gain_ci": [
+      -0.07961161273662593,
+      0.004714635145170173
+    ],
+    "n_boot_undefined": 0,
+    "verdict": "no_signal"
+  },
+  "within_alert": {
+    "n_alerts": 321,
+    "top_payment_hit_rate": 0.235202492211838,
+    "chance_rate": 0.14197732350380324,
+    "mean_within_alert_auc": 0.5901731682327085
+  },
+  "payment_level": [
+    {
+      "fold": "F1",
+      "auc_payment_level_unseen": 0.7123601935611878
+    },
+    {
+      "fold": "F2",
+      "auc_payment_level_unseen": 0.7831041388398501
+    }
+  ],
+  "strata": {
+    "rule_fan_in": {
+      "n_pos_unseen": 296,
+      "auc_payment_max": 0.5424785408719361,
+      "auc_baseline": 0.5779432906577647
+    },
+    "rule_other": {
+      "n_pos_unseen": 32,
+      "auc_payment_max": 0.8595888166225418,
+      "auc_baseline": 0.4961861985726215
+    },
+    "share_[0.00,0.10)": {
+      "n_pos_unseen": 140,
+      "auc_payment_max": 0.4097354301697881,
+      "auc_baseline": 0.6271089023630746
+    },
+    "share_[0.10,0.50)": {
+      "n_pos_unseen": 162,
+      "auc_payment_max": 0.6667350316685775,
+      "auc_baseline": 0.5052042714186981
+    },
+    "share_[0.50,inf)": {
+      "n_pos_unseen": 26,
+      "auc_payment_max": 0.8733251875359438,
+      "auc_baseline": 0.6658013110908735
+    },
+    "typ_BIPARTITE": {
+      "n_pos_unseen": 2,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "typ_CYCLE": {
+      "n_pos_unseen": 7,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "typ_FAN-IN": {
+      "n_pos_unseen": 4,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "typ_FAN-OUT": {
+      "n_pos_unseen": 6,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "typ_GATHER-SCATTER": {
+      "n_pos_unseen": 3,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "typ_RANDOM": {
+      "n_pos_unseen": 5,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "typ_SCATTER-GATHER": {
+      "n_pos_unseen": 9,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "typ_STACK": {
+      "n_pos_unseen": 5,
+      "auc_payment_max": null,
+      "auc_baseline": null
+    },
+    "unattributed": {
+      "n_pos_unseen": 290,
+      "auc_payment_max": 0.5306315946035668,
+      "auc_baseline": 0.5563846232165877
+    }
+  },
+  "finished_utc": "2026-10-16T10:23:16Z",
+  "seconds": 148
+}
