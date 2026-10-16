@@ -22,6 +22,7 @@ data = [
     "scikit-learn>=1.5",
     "numpy>=1.26",
     "scipy>=1.11",  # P3 graph features (sparse matrices); was only transitive via scikit-learn
+    "lightgbm==4.7.0",  # P4 (2026-10-16): exact pin; time-fold early stopping, row subsampling, native TreeSHAP
 ]
 
 [tool.uv]

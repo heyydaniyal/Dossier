@@ -1,0 +1,37 @@
+# P4 — Detection model
+
+Phase 4 design and evidence. Real-data numbers come only from results JSON files written on Dani's
+laptop (`docs/p4/p4_diagnosis.json` first).
+
+| File | Content |
+|---|---|
+| `configs/p4_diagnosis.yaml` | step 0 protocol and verdict rules, **declared before the real run** |
+| `configs/p4_protocol.yaml` | model-selection protocol, **declared before any P4 model is fitted** |
+| `src/models/diagnostics.py` | step 0, label-free |
+| `src/eval/training_labels.py` | `load_fit_strata`: reporting strata built inside the eval module; refuses TEST |
+| `scripts/p4/diagnose.py` | step 0 driver: TRAIN only, aggregates only |
+
+## 1. Decisions (validated 2026-10-16 before implementing; approved by Dani: "push ok go ahead")
+
+| # | Decision | Evidence | Result |
+|---|---|---|---|
+| P4-1 | **Diagnose the seen/unseen gap first** (open risk 36), on TRAIN folds F1/F2 only | P3: base AUC 0.903 on seen accounts vs 0.519 on unseen. Known-answer worlds: recognition, population and pure noise are each classified correctly | Holds. Step 0 runs before any lever or model choice |
+| P4-2 | **Task 10 (LI-Small) not done in P4** | LI-Small is not a frozen input (`configs/data_sources.yaml`). The variants decision (FROZEN 2026-09-29) names LI-Medium for regime C. LI-Medium is deferred until the MDP works end to end (2026-09-30, open risk 22) and needs a frozen-HI-thresholds mode that does not exist | Deviation from the phase prompt, recorded in `configs/p4_protocol.yaml`. P5 task 8 reports regime C as not evaluated unless the deferral is lifted |
+| P4-3 | **LightGBM 4.7.0** (exact pin) | Adds 1 package (3.3 MB), with a Windows wheel in `uv.lock`. Early stopping uses the eval set we pass (the time-later fold). sklearn's HistGradientBoosting uses a *random* internal hold-out for early stopping and has **no row subsampling** (tasks 3 and 5 need both). Predictions are identical with 1 and 2 threads. Native `pred_contrib` equals shap's TreeExplainer exactly. **Correction:** shap also explains HistGradientBoosting exactly (additivity error 1e-14), so SHAP alone was not a reason; shap would add numba, llvmlite and pandas | Holds. `tests/test_p4_protocol.py` pins thread determinism, eval-fold early stopping and log-odds additivity for the pinned version |
+| P4-4 | **Tune inside TRAIN; open VALIDATION once**, at most 5 finalists, with a declared rule: the simpler model wins unless the PR-AUC gain's paired account-bootstrap 95% CI excludes 0 | Simulation at 213 positives / 4,158 alerts: one look carries ±17–25% noise; best of 5 configs is 6–13% optimistic, best of 20 is 7–19%; two models are ranked correctly unless their true gap is below ≈ 0.03 PR-AUC. The simulation assumes independent rows, so the real spread is wider (accounts cluster). VALIDATION was already used in P2 (revision-2 count, KYC checks) and in the P3 guard (fold F3); this is allowed and listed in the protocol | Holds. `configs/p4_protocol.yaml` |
+| P4-5 | **`scripts/p4` gets exactly the `scripts/p3` label-access allowance** (`src.eval.training_labels`, `src.eval.identity_guard`) | 4 planted widenings caught: one extra module, the whole `src.eval`, the driver importing the label builder, the label-free model module importing labels. `scripts/p5` is not granted ahead of time | Holds. `tests/test_eval_isolation.py` |
+| P4-6 | **Transaction-level labels as training targets: PENDING** | Changes the FROZEN ontology ("transaction-level labels are used only to derive alert labels") and needs a new label API. It is consistent with label P2-v1: the maximum per-payment score estimates "did this account touch laundering today" | Decide after step 0 Q-C (are needle cases a large share of unseen positives, and at chance?) |
+
+## 2. Step 0 — diagnosis (configs/p4_diagnosis.yaml)
+
+- **Q-A, recognition or population?** Three arms, scored on the eval-day rows of seen accounts:
+  - **full**: fitted on all fit rows;
+  - **disjoint**: the seen accounts' own fit rows removed;
+  - **control**: the same number of rows and positives removed from other accounts.
+  - Also reported: **label memory**, which scores an account by its past labels alone.
+- **Control-arm fix (2026-10-16, before any real run).** The first version crashed when repeat launderers hold most fit positives. The shortfall is now drawn from the seen accounts' own rows. This biases control toward disjoint, i.e. *against* recognition, so a `recognition` verdict stands. If more than 25% of the control's positives are borrowed this way, any other verdict becomes `control_unmatched`. Checked on simulated data: recognition survives an 87% top-up; a population world with the same top-up gives `control_unmatched`.
+- **Q-B:** AUC of each feature on unseen accounts, with a 95% CI (screening only; 61 features tested).
+- **Q-C:** model AUC per stratum of unseen positives: laundering share of the day's payments, fan-in vs other rules, typology, unattributed laundering.
+- **Evidence:** 22 planted bugs caught in step 0 code and tests; metrics equal sklearn; the driver runs end to end on the fixture; the output holds aggregates only.
+
+Run (Dani's laptop): `uv sync`, then `uv run python -m scripts.p4.diagnose`. Commit `docs/p4/p4_diagnosis.json`.

@@ -1,0 +1,59 @@
+# Phase 4 model-selection protocol. DECLARED 2026-10-16, BEFORE any P4 model is fitted (the commit
+# date is the evidence). Decisions validated with evidence first (docs/p4/P4_MODEL.md §1) and
+# approved by Dani 2026-10-16 ("push ok go ahead"). Changing anything below after the first P4
+# model run needs Dani's decision and a dated entry. Step 0 (diagnosis) is configs/p4_diagnosis.yaml.
+version: 1
+status: DECLARED
+
+# P4-3: boosted-tree library. Exact pin in pyproject.toml / uv.lock. Settings that make runs
+# reproducible (validated 2026-10-16: identical predictions with 1 and 2 threads).
+library:
+  name: lightgbm
+  version: "4.7.0"
+  fixed_params: {deterministic: true, force_row_wise: true, num_threads: 2, verbose: -1}
+  seed: 20261016
+  shap: native pred_contrib    # exact TreeSHAP in the log-odds margin; no shap package
+
+# P4-4: who touches what.
+data_access:
+  fit: [TRAIN]                 # the model is fitted on TRAIN only, never refitted on TRAIN+VALIDATION
+  tuning:
+    method: time_series_cv_inside_train
+    folds: [F1, F2]            # configs/p3_identity_guard.yaml: fit 09-02 -> eval 09-04; fit 09-02..03 -> eval 09-05
+    early_stopping: each fold's eval day (the time-later fold), never a random hold-out
+    max_configs: 20            # small, justified search space; the number actually tried is recorded
+  validation:
+    opened: once               # one session, after the finalists and this rule are committed
+    max_finalists: 5
+    also_in_that_session: identity guard v2 for the chosen feature set (its fold F3 = VALIDATION)
+  never: [CALIBRATION, TEST]   # CALIBRATION is P5; TEST is P5 task 8 (report-only)
+
+# Selection on VALIDATION (P4 task 6: added complexity must earn its place).
+selection:
+  metric: pr_auc
+  simplicity_order: [rules_only, logistic_regression, lightgbm]
+  rule: >-
+    the simplest finalist wins unless a more complex one's PR-AUC gain over it has a paired
+    account-bootstrap 95% CI lower bound > 0; among complex finalists that pass, the highest
+    PR-AUC wins
+  bootstrap: {unit: account, n_boot: 2000, seed: 20261016, ci: 0.95}
+  report_for: [all, seen, unseen]   # regime A and the regime-B analogue, always side by side
+
+# Evidence behind the VALIDATION rule (simulation 2026-10-16, 213 positives / 4,158 alerts):
+#   one look: PR-AUC +-17-25%; best of 5 configs +6-13% optimistic, best of 20 +7-19%;
+#   two models are ranked correctly unless their true PR-AUC gap is below ~0.03.
+# VALIDATION exposures BEFORE P4 (allowed by the data-access matrix; recorded, not hidden):
+validation_exposures_before_p4:
+  - "P2 rule revision 2: aggregate VALIDATION positive account-day count (exposure log row 2)"
+  - "P2 KYC leakage checks C1-C4: fit TRAIN, scored on VALIDATION"
+  - "P3 identity guard v2: fold F3 (fit 09-02..05 -> eval 09-07) for the rule base and 5 groups"
+
+# P4-2: deviation from the phase prompt (task 10).
+deviations:
+  task_10_li_small:
+    decision: not done in P4
+    reason: >-
+      LI-Small is not a frozen input (configs/data_sources.yaml); variants FROZEN 2026-09-29 name
+      LI-Medium for regime C; LI-Medium is deferred until the MDP works end to end (2026-09-30,
+      open risk 22) and needs a frozen-HI-thresholds mode that does not exist yet
+    consequence: P5 task 8 reports regime C as not evaluated unless that deferral is lifted
