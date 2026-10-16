@@ -1,9 +1,11 @@
 """Phase 4 detection models (configs/p4_models.yaml under the frozen configs/p4_protocol.yaml).
 
-Two stages, run in order on Dani's laptop:
+Stages, run in order on Dani's laptop (precheck added 2026-10-16, configs/p4_precheck.yaml):
   cv        TRAIN ONLY. Time-series CV (folds F1, F2), all configurations of the declared search
             space, learning curves, fold stability, seen/unseen, permutation importance. Writes
             docs/p4/p4_cv.json including the FINALISTS. Commit it before running validate.
+  precheck  TRAIN ONLY. Explanation shares of the learned finalists on the CV folds (would the
+            "one feature dominates" stop rule fire?) and the rules_weighted weights.
   validate  Opens VALIDATION ONCE (refused if docs/p4/p4_validation.json exists). Fits the finalists
             on TRAIN, evaluates them on VALIDATION with bootstrap CIs, applies the declared
             selection
@@ -52,6 +54,8 @@ FEATURES_ROOT = ROOT / "data" / "p3"
 STORE_ROOT = ROOT / "data" / "p2"
 P3_RESULTS = ROOT / "docs" / "p3" / "p3_results.json"
 CV_RESULTS = ROOT / "docs" / "p4" / "p4_cv.json"
+PRECHECK_CONFIG = ROOT / "configs" / "p4_precheck.yaml"
+PRECHECK_RESULTS = ROOT / "docs" / "p4" / "p4_precheck.json"
 VAL_RESULTS = ROOT / "docs" / "p4" / "p4_validation.json"
 MODEL_CARD = ROOT / "docs" / "p4" / "MODEL_CARD.md"
 CANDIDATE_ORDER = ["rules", "logistic", "lightgbm"]  # configs/p4_protocol.yaml simplicity_order
@@ -518,6 +522,109 @@ def explain(model, X, names, k: int) -> dict:
     }
 
 
+def precheck_reading(worst: float, near: float, stop: float) -> str:
+    """configs/p4_precheck.yaml reading of the worst candidate top-feature share."""
+    if worst > stop:
+        return "stop_rule_would_fire"
+    if worst >= near:
+        return "near_stop_rule"
+    return "clear"
+
+
+def stage_precheck(env: Env) -> dict:
+    """TRAIN ONLY (configs/p4_precheck.yaml): explanation shares of each learned finalist on the CV
+    folds' eval days, fitted exactly as `validate` fits it; rules_weighted weights per fold."""
+    t0 = time.time()
+    pc = load_yaml(env.a.precheck_config)
+    if (
+        pc["stop"]
+        != env.cfg["validate"]["stop_rules"]["top_feature_share_of_abs_contribution_above"]
+    ):
+        raise SystemExit("precheck stop level differs from the declared validate stop rule")
+    cv = json.loads(env.a.cv_results.read_text(encoding="utf-8"))
+    if {k: cv["inputs"][k] for k in env.inputs()} != env.inputs():
+        raise SystemExit("configs changed after the CV run: the finalists no longer match them")
+    fs = folds(env, env.period("TRAIN"))
+    if [f["name"] for f in fs] != pc["folds"]:
+        raise SystemExit("precheck folds differ from the declared ones")
+    out_f = {}
+    for spec in cv["finalists"]:
+        if spec["family"] not in ("logistic", "lightgbm"):
+            continue
+        cols = env.sets[spec["feature_set"]]
+        per = []
+        for f in fs:
+            m = build(env, spec, n_estimators=spec.get("n_estimators"))
+            m.fit(f["fit"].select(cols).to_numpy(), f["fit"]["y"].to_numpy())
+            ex = explain(m, f["ev"].select(cols).to_numpy(), cols, pc["top_k"])
+            per.append({"fold": f["name"], "top_share": ex["top_share"], "top": ex["top"]})
+        out_f[spec["id"]] = {
+            "role": spec["role"],
+            "family": spec["family"],
+            "feature_set": spec["feature_set"],
+            "per_fold": per,
+            "max_top_share": max(p["top_share"] for p in per),
+        }
+    cand = [v["max_top_share"] for v in out_f.values() if v["role"] == "candidate"]
+    worst = max(cand) if cand else 0.0
+    reading = precheck_reading(worst, pc["near_stop"], pc["stop"])
+    rw = {}
+    rw_spec = {
+        "id": "rules_weighted",
+        "family": "rules_weighted",
+        "feature_set": "all",
+        "params": dict(env.cfg["cv"]["families"]["rules_weighted"]),
+    }
+    cols = env.sets["all"]
+    for f in fs:
+        m = build(env, rw_spec)
+        X, y = f["fit"].select(cols).to_numpy(), f["fit"]["y"].to_numpy()
+        m.fit(X, y)
+        rows = {}
+        for r, w in m.weights.items():
+            on = X[:, cols.index(r)] == 1
+            rows[r] = {
+                "weight": w,
+                "fired": int(on.sum()),
+                "precision": float(y[on].mean()) if on.any() else None,
+            }
+        rw[f["name"]] = {"fit_prevalence": float(y.mean()), "rules": rows}
+    return {
+        "inputs": {
+            **env.inputs(),
+            "precheck_config_sha256": sha_text(env.a.precheck_config),
+            "cv_results_sha256": sha_text(env.a.cv_results),
+            "periods_read": ["TRAIN"],
+        },
+        "learned_finalists": out_f,
+        "worst_candidate_top_share": worst,
+        "reading": reading,
+        "rules_weighted": rw,
+        "finished_utc": now(),
+        "seconds": round(time.time() - t0),
+    }
+
+
+def precheck_summary(doc: dict) -> str:
+    L = [
+        f"reading: {doc['reading']}  (worst candidate top share "
+        f"{f3(doc['worst_candidate_top_share'])}; near 0.40, stop 0.50)"
+    ]
+    for k, v in doc["learned_finalists"].items():
+        for p in v["per_fold"]:
+            tops = ", ".join(f"{t['feature']} {t['share']:.0%}" for t in p["top"][:4])
+            L.append(f"  {k:<36} [{v['role']}] {p['fold']}: top share {f3(p['top_share'])}  {tops}")
+    for fold, v in doc["rules_weighted"].items():
+        L.append(
+            f"rules_weighted {fold} (fit prevalence {f3(v['fit_prevalence'])}): "
+            + ", ".join(
+                f"{r} w={f3(x['weight'])} n={x['fired']} prec={f3(x['precision'])}"
+                for r, x in v["rules"].items()
+            )
+        )
+    return "\n".join(L)
+
+
 def stop_reason(
     pr_auc: float | None, learned: bool, ex: dict, cols: list[str], registry: list[str], sr: dict
 ) -> str | None:
@@ -829,7 +936,9 @@ recall at 10% review capacity {f3(a["recall_at_capacity_0.1"])}.
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["cv", "validate"])
+    ap.add_argument("stage", choices=["cv", "precheck", "validate"])
+    ap.add_argument("--precheck-config", type=Path, default=PRECHECK_CONFIG)
+    ap.add_argument("--precheck-results", type=Path, default=PRECHECK_RESULTS)
     ap.add_argument("--variant", default=VARIANT)
     ap.add_argument("--config", type=Path, default=CONFIG)
     ap.add_argument("--protocol", type=Path, default=PROTOCOL)
@@ -855,6 +964,13 @@ def main(argv: list[str] | None = None) -> int:
         a.cv_results.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         print(cv_summary(doc))
         print(f"\nwrote {a.cv_results} ({doc['seconds']} s). Commit it BEFORE `validate`.")
+        return 0
+    if a.stage == "precheck":
+        doc = stage_precheck(env)
+        a.precheck_results.parent.mkdir(parents=True, exist_ok=True)
+        a.precheck_results.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+        print(precheck_summary(doc))
+        print(f"\nwrote {a.precheck_results} ({doc['seconds']} s). VALIDATION was not read.")
         return 0
     doc, code = stage_validate(env)
     a.results.parent.mkdir(parents=True, exist_ok=True)

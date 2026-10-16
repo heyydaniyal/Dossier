@@ -426,7 +426,8 @@ def p4m(p2_run, tmp_path_factory):
     args = [*common, "--config", str(cpath), "--features-root", str(out / "p3"),
             "--p3-results", str(out / "p3.json"), "--cv-results", str(out / "cv.json"),
             "--results", str(out / "val.json"), "--model-card", str(out / "card.md"),
-            "--model-dir", str(out / "models")]  # fmt: skip
+            "--model-dir", str(out / "models"),
+            "--precheck-results", str(out / "pre.json")]  # fmt: skip
     yield {"args": args, "out": out, "asked": asked, "mp": mp, "cpath": cpath, "strict": strict}
     mp.undo()
 
@@ -537,5 +538,63 @@ def test_validate_refuses_configs_changed_after_cv(p4m):
         p4m["cpath"].write_text(original + "\n# edited after cv\n", encoding="utf-8")
         with pytest.raises(SystemExit, match="changed after the CV run"):
             drv.main(["validate", *p4m["args"]])
+    finally:
+        p4m["cpath"].write_text(original, encoding="utf-8")
+
+
+# ------------------------------------------------------------------ precheck (TRAIN only)
+
+
+@pytest.mark.parametrize(
+    ("worst", "want"),
+    [(0.10, "clear"), (0.399, "clear"), (0.40, "near_stop_rule"), (0.50, "near_stop_rule"),
+     (0.501, "stop_rule_would_fire")],
+)  # fmt: skip
+def test_precheck_reading(worst, want):
+    assert drv.precheck_reading(worst, 0.40, 0.50) == want
+
+
+def test_precheck_stop_level_equals_the_declared_validate_stop_rule():
+    pc = drv.load_yaml(drv.PRECHECK_CONFIG)
+    cfg = drv.load_yaml(drv.CONFIG)
+    assert (
+        pc["stop"] == cfg["validate"]["stop_rules"]["top_feature_share_of_abs_contribution_above"]
+    )
+    assert pc["near_stop"] < pc["stop"]
+
+
+def test_precheck_on_fixture_reads_train_only_and_never_opens_validation(p4m):
+    _ensure_cv(p4m)
+    _fresh_validation(p4m)
+    p4m["asked"].clear()
+    assert drv.main(["precheck", *p4m["args"]]) == 0
+    doc = json.loads((p4m["out"] / "pre.json").read_text(encoding="utf-8"))
+    assert doc["inputs"]["periods_read"] == ["TRAIN"]
+    assert p4m["asked"] and all(p == ["TRAIN"] for p in p4m["asked"])
+    assert not (p4m["out"] / "val.json").exists()
+    lf = doc["learned_finalists"]
+    assert {v["family"] for v in lf.values()} == {"logistic", "lightgbm"}
+    assert sorted(v["role"] for v in lf.values()) == ["candidate"] * 2 + ["sensitivity"] * 2
+    for v in lf.values():
+        assert [p["fold"] for p in v["per_fold"]] == ["F1", "F2"]
+        for p in v["per_fold"]:
+            assert 0 < p["top_share"] <= 1
+            assert p["top"][0]["share"] == pytest.approx(p["top_share"])
+        assert v["max_top_share"] == max(p["top_share"] for p in v["per_fold"])
+    cand = max(v["max_top_share"] for v in lf.values() if v["role"] == "candidate")
+    assert doc["worst_candidate_top_share"] == cand
+    assert doc["reading"] == drv.precheck_reading(cand, 0.40, 0.50)
+    assert set(doc["rules_weighted"]) == {"F1", "F2"}
+    for v in doc["rules_weighted"].values():
+        assert all(k.startswith("fired_") for k in v["rules"])
+
+
+def test_precheck_refuses_configs_changed_after_cv(p4m):
+    _ensure_cv(p4m)
+    original = p4m["cpath"].read_text(encoding="utf-8")
+    try:
+        p4m["cpath"].write_text(original + "\n# edited after cv\n", encoding="utf-8")
+        with pytest.raises(SystemExit, match="changed after the CV run"):
+            drv.main(["precheck", *p4m["args"]])
     finally:
         p4m["cpath"].write_text(original, encoding="utf-8")

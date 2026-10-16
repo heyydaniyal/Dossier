@@ -1,0 +1,29 @@
+# Phase 4 precheck BEFORE VALIDATION is opened. DECLARED 2026-10-16, before its run; approved by
+# Dani 2026-10-16 ("go ahead"). TRAIN ONLY (folds F1, F2). Kept separate from
+# configs/p4_models.yaml on purpose: that file's hash is recorded by `cv`, and `validate` refuses
+# any change after `cv`, so the CV run stays valid.
+#
+# Why: CV showed the LightGBM finalist loses most of its seen-account skill without payment format
+# (seen PR-AUC 0.813 -> 0.458) and its top permutation feature is share_fmt_ach. The declared
+# validate stop rule ("one feature > 50% of a learned model's explanation") would then fire AFTER
+# VALIDATION is opened, when any fallback would be chosen having seen VALIDATION. This check
+# measures the explanation shares on TRAIN folds first.
+version: 1
+status: DECLARED
+
+folds: [F1, F2]
+fit: "each finalist exactly as `validate` fits it (LightGBM with the finalist's n_estimators, no early stopping)"
+explain_on: "each fold's eval day (mean |contribution| in log-odds, share of the total)"
+top_k: 10
+
+# Reading (fixed now):
+#   max share over folds of the top feature of any learned CANDIDATE finalist
+#     < 0.40           -> run `validate` as declared
+#     0.40 .. 0.50     -> close to the stop rule: back to Dani before `validate`
+#     > 0.50           -> the stop rule would fire: back to Dani; the choice (e.g. no_format
+#                         candidates) is made now, on TRAIN evidence, never after VALIDATION
+near_stop: 0.40
+stop: 0.50   # = configs/p4_models.yaml validate.stop_rules.top_feature_share_of_abs_contribution_above
+
+# Also reported (descriptive): per-fold weights of the rules_weighted score with each rule's fired
+# count and precision on the fit rows, to explain why it scored below the plain rule count.

@@ -107,6 +107,24 @@ Payments: F1 fit 147,685 sampled (603 laundering), eval 112,084 (277); F2 fit 18
 - **Also reported:** learning curves over 25–100% of fit accounts, and permutation importance on both folds (sign flips counted).
 - **Finalists:** the best per family (3 candidates) plus the two no-format models (report only).
 
+**CV result (Dani's laptop, 2026-10-16; `docs/p4/p4_cv.json`).**
+- Best pooled PR-AUC:
+  - LightGBM (7 leaves, min_child 50, no weighting): 0.216 (seen 0.813, unseen 0.120; train 0.392; fold spread 0.017);
+  - logistic (C 0.1, no weighting): 0.197;
+  - rule count: 0.129.
+- Class weighting lost in every family.
+- Without payment format: LightGBM 0.138 (seen **0.458**), logistic 0.148. The LightGBM's top permutation feature is `share_fmt_ach`.
+- **Consequence:** the declared "one feature > 50% of the explanation" stop rule might fire inside `validate`, after VALIDATION is opened.
+
+**Stage `precheck` (added 2026-10-16, Dani "go ahead"; `configs/p4_precheck.yaml`, TRAIN only).**
+- Fits each learned finalist exactly as `validate` will, on folds F1/F2, and reports explanation shares on the eval days.
+- Reading of the worst candidate's top-feature share:
+  - below 0.40: `validate` as declared;
+  - 0.40–0.50: back to Dani;
+  - above 0.50: the stop rule would fire, so the candidate set is decided now, on TRAIN evidence.
+- Also prints the rules_weighted weights per fold.
+- Kept out of `configs/p4_models.yaml` so the CV run stays valid.
+
 **Stage `validate` (VALIDATION opened once; refused if `docs/p4/p4_validation.json` exists or any config changed after `cv`).**
 - **Fit:** finalists fitted on all of TRAIN (LightGBM trees = mean of the folds' best iterations).
 - **Metrics with 95% account-bootstrap CIs:** PR-AUC, precision at recall 0.8/0.9, recall at 5/10/20% review capacity, Brier (only where the raw score is a probability), ROC-AUC (secondary). Every number is given for all, seen and unseen accounts.
