@@ -207,6 +207,27 @@ def test_store_refuses_oversized_models(tmp_path):
 # ------------------------------------------------------------------ search space, selection, stops
 
 
+def test_candidate_feature_set_excludes_every_format_feature():
+    env = drv.Env(drv.parse(["cv"]))
+    from src.features import compute as fc
+
+    fmt = set(fc.group_names(env.ctx)["format_mix"])
+    nf = env.sets[env.cfg["candidate_feature_set"]]
+    assert fmt and fmt.isdisjoint(nf)
+    assert set(nf) | fmt == set(env.sets["all"]) and len(nf) == 54
+
+
+def test_feature_sets_must_differ(tmp_path):
+    cfg = drv.load_yaml(drv.CONFIG)
+    cfg["sensitivity_feature_set"] = cfg["candidate_feature_set"]
+    import yaml
+
+    p = tmp_path / "m.yaml"
+    p.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    with pytest.raises(SystemExit, match="two different sets"):
+        drv.Env(drv.parse(["cv", "--config", str(p)]))
+
+
 def test_declared_search_space():
     cfg = drv.load_yaml(drv.CONFIG)
     proto = drv.load_yaml(drv.PROTOCOL)
@@ -215,6 +236,8 @@ def test_declared_search_space():
     total = len(specs) + len(cfg["cv"]["sensitivity"])
     assert total == 18 <= proto["data_access"]["tuning"]["max_configs"]
     assert {drv.family_group(s["family"]) for s in specs} == set(drv.CANDIDATE_ORDER)
+    assert {s["feature_set"] for s in specs} == {"no_format"}  # decision P4-9
+    assert cfg["sensitivity_feature_set"] == "all"
     assert drv.CANDIDATE_ORDER == ["rules", "logistic", "lightgbm"]
     assert proto["selection"]["simplicity_order"] == [
         "rules_only",
@@ -452,7 +475,10 @@ def test_cv_stage_on_fixture(p4m):
     roles = [f["role"] for f in doc["finalists"]]
     assert roles == ["candidate"] * 3 + ["sensitivity"] * 2
     assert [drv.family_group(f["family"]) for f in doc["finalists"][:3]] == drv.CANDIDATE_ORDER
-    assert all(f["feature_set"] == "no_format" for f in doc["finalists"][3:])
+    # decision P4-9: candidates without payment format, with-format models report-only
+    assert all(f["feature_set"] == "no_format" for f in doc["finalists"][:3])
+    assert all(f["feature_set"] == "all" for f in doc["finalists"][3:])
+    assert all(f["id"].endswith("__all") for f in doc["finalists"][3:])
     lgb_f = next(f for f in doc["finalists"] if f["family"] == "lightgbm")
     assert 1 <= lgb_f["n_estimators"] < 60  # early-stopped on the eval fold (cap 60 here)
     assert all(p == ["TRAIN"] for p in p4m["asked"])

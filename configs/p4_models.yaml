@@ -11,6 +11,16 @@ feature_sets:
   all: all_model_features              # the 61 registry features (every P3 group cleared by the guard)
   no_format: all_model_features_minus_format_mix   # 54: without the ACH generator signature
 
+# Decision P4-9 (Dani 2026-10-20, "B"; TRAIN evidence only, BEFORE VALIDATION was opened):
+# candidates use no_format. Evidence (docs/p4/p4_cv_run1_format_candidates.json and the precheck):
+# with format, the LightGBM finalist's explanation was 45% / 42% share_fmt_ach (stop rule 50%),
+# seen PR-AUC fell 0.813 -> 0.458 without format; ACH carries 86% of laundering in this generator
+# (DATA_CARD §7) and is not a domain reason to flag an account. The with-format models stay as
+# report-only sensitivity, so their cost is visible. CV is rerun so that tuning happens on the
+# feature set actually used.
+candidate_feature_set: no_format
+sensitivity_feature_set: all
+
 # ---------------------------------------------------------------- stage cv (TRAIN only)
 cv:
   folds: [F1, F2]                      # configs/p4_protocol.yaml data_access.tuning.folds
@@ -32,7 +42,7 @@ cv:
               colsample_bytree: 0.8, reg_lambda: 1.0}
       early_stopping_rounds: 100       # on each fold's eval day (the time-later fold)
       metric: average_precision        # the only LightGBM metric, so early stopping cannot use another
-  sensitivity: [logistic, lightgbm]    # each family's best config refitted on feature set no_format
+  sensitivity: [logistic, lightgbm]    # each family's best config refitted on sensitivity_feature_set
   # 2 + 6 + 8 + 2 = 18 configurations (protocol max 20); the count actually run is recorded.
   within_family_choice: highest pooled CV PR-AUC; ties -> simpler (no weighting, smaller C, fewer leaves, larger min_child_samples)
   learning_curve:
@@ -43,7 +53,7 @@ cv:
 # Finalists (fixed by the CV stage, written before VALIDATION is opened):
 #   selection candidates (configs/p4_protocol.yaml simplicity_order): best rules family, best
 #   logistic, best lightgbm  -> 3
-#   report-only sensitivity: best logistic and best lightgbm on no_format -> 2   (total 5)
+#   report-only sensitivity: best logistic and best lightgbm on sensitivity_feature_set -> 2 (total 5)
 
 # ---------------------------------------------------------------- stage validate (opened once)
 validate:

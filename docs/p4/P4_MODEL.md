@@ -29,6 +29,7 @@ laptop (`docs/p4/p4_diagnosis.json` first).
 | P4-5 | **`scripts/p4` gets exactly the `scripts/p3` label-access allowance** (`src.eval.training_labels`, `src.eval.identity_guard`) | 4 planted widenings caught: one extra module, the whole `src.eval`, the driver importing the label builder, the label-free model module importing labels. `scripts/p5` is not granted ahead of time | Holds. `tests/test_eval_isolation.py` |
 | P4-7 | **Step 0b: one-off use of transaction-level labels as the target of a DIAGNOSTIC payment model, TRAIN only** (approved by Dani 2026-10-16, "ok, lets go for your recommendation") | Step 0 Q-C contradicted the needle hypothesis (below). Before building levers 1–2 or deciding P4-6, test whether laundering payments of NEW accounts differ from normal ones at all | Dated deviation from the frozen ontology, scoped to this check: `src/eval/training_labels.load_fit_laundering_txns` refuses TEST; nothing fitted is kept; aggregates only |
 | P4-8 | **Levers 1–2 not built; P4-6 closed: transaction labels stay "derive alert labels only" (frozen ontology unchanged)** (Dani 2026-10-16, "go with what you want to do") | Step 0b (§3): payment-max vs step-0 model on new accounts +0.003 AUC, CI [−0.039, +0.045] (inconclusive); without payment format −0.037, CI upper +0.005 (no_signal); inside a positive account the top payment is a laundering one 23.5% vs 14.2% by chance (within-account AUC 0.590). Per-stratum gains are descriptive, not pre-declared, partly the ACH signature, and the maximum over many payments is biased toward busy accounts (needles 0.410) | Go to baselines (rules → logistic regression → LightGBM) under `configs/p4_protocol.yaml` |
+| P4-9 | **Selection candidates use the 54 features WITHOUT payment format; the with-format models are report-only sensitivity** (Dani 2026-10-20, "B"; decided on TRAIN evidence before VALIDATION was opened) | First CV run (`docs/p4/p4_cv_run1_format_candidates.json`): LightGBM with format 0.216 vs without 0.138 (seen 0.813 vs 0.458). Precheck: the with-format LightGBM's explanation was 45% (F1) / 42% (F2) `share_fmt_ach`, near the 50% stop rule; ACH carries 86% of laundering in this generator (DATA_CARD §7) and is not a domain reason to flag an account; without format the top features are distinct senders, repeat counterparties, amount dispersion, component size (≤ 22%) | `configs/p4_models.yaml` `candidate_feature_set: no_format`; `cv` rerun so tuning happens on the features actually used; expected cost on this synthetic data ≈ 0.05–0.08 PR-AUC, reported side by side |
 | P4-6 | **Transaction-level labels as training targets: CLOSED by P4-8** | Changes the FROZEN ontology ("transaction-level labels are used only to derive alert labels") and needs a new label API. It is consistent with label P2-v1: the maximum per-payment score estimates "did this account touch laundering today" | Decide after step 0 Q-C (are needle cases a large share of unseen positives, and at chance?) |
 
 ## 2. Step 0 — diagnosis (configs/p4_diagnosis.yaml)
@@ -102,12 +103,12 @@ Payments: F1 fit 147,685 sampled (603 laundering), eval 112,084 (277); F2 fit 18
   - rules: rule count, and the sum of each fired rule's log-lift;
   - logistic regression: C ∈ {0.01, 0.1, 1} × {no weighting, balanced};
   - LightGBM: leaves ∈ {7, 15} × min_child_samples ∈ {50, 200} × {no weighting, balanced}, early-stopped on each fold's eval day (average precision only);
-  - the best logistic and best LightGBM again without payment format.
+  - the best logistic and best LightGBM again on the other feature set (since P4-9: candidates without payment format, sensitivity with it).
 - **Reported per configuration:** pooled PR-AUC (all / seen / unseen), train PR-AUC (overfitting gap) and fold spread (stability).
 - **Also reported:** learning curves over 25–100% of fit accounts, and permutation importance on both folds (sign flips counted).
-- **Finalists:** the best per family (3 candidates) plus the two no-format models (report only).
+- **Finalists:** the best per family (3 candidates) plus the two sensitivity models (report only).
 
-**CV result (Dani's laptop, 2026-10-16; `docs/p4/p4_cv.json`).**
+**First CV result (Dani's laptop, 2026-10-16; candidates WITH format; kept as `docs/p4/p4_cv_run1_format_candidates.json`, superseded by P4-9).**
 - Best pooled PR-AUC:
   - LightGBM (7 leaves, min_child 50, no weighting): 0.216 (seen 0.813, unseen 0.120; train 0.392; fold spread 0.017);
   - logistic (C 0.1, no weighting): 0.197;

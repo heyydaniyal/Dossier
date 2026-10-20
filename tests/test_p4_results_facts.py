@@ -126,5 +126,18 @@ def test_leg_check_verdicts_and_doc_numbers(d1):
 
 
 def test_doc_records_the_decisions():
-    for k in ("P4-1", "P4-2", "P4-3", "P4-4", "P4-5", "P4-6", "P4-7", "P4-8"):
+    for k in ("P4-1", "P4-2", "P4-3", "P4-4", "P4-5", "P4-6", "P4-7", "P4-8", "P4-9"):
         assert re.search(rf"\| {k} \|", DOC), k
+
+
+RUN1 = ROOT / "docs" / "p4" / "p4_cv_run1_format_candidates.json"
+
+
+@pytest.mark.skipif(not RUN1.exists(), reason="first CV run not kept")
+def test_first_cv_run_supports_decision_p4_9():
+    d = json.loads(RUN1.read_text(encoding="utf-8"))
+    by = {r["id"]: r for r in d["configs"] + d["sensitivity"]}
+    w, wo = by["lightgbm_l7_m50_none"], by["lightgbm_l7_m50_none__no_format"]
+    assert w["feature_set"] == "all" and wo["feature_set"] == "no_format"
+    _in_doc(w["cv_pr_auc"], wo["cv_pr_auc"], w["cv_pr_auc_seen"], wo["cv_pr_auc_seen"])
+    assert d["inputs"]["periods_read"] == ["TRAIN"]
