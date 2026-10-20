@@ -93,6 +93,9 @@ class Env:
         allf = reg.model_features(self.ctx)
         fmt = set(fc.group_names(self.ctx)["format_mix"])
         self.sets = {"all": allf, "no_format": [f for f in allf if f not in fmt]}
+        cfs, sfs = self.cfg["candidate_feature_set"], self.cfg["sensitivity_feature_set"]
+        if cfs not in self.sets or sfs not in self.sets or cfs == sfs:
+            raise SystemExit("candidate and sensitivity feature sets must be two different sets")
         self.rule_cols = reg.model_features(self.ctx, ["rule"])
         self.feat_dir = a.features_root / a.variant / "features"
         self.p3 = json.loads(a.p3_results.read_text(encoding="utf-8"))
@@ -139,13 +142,14 @@ class Env:
 def enumerate_configs(cfg: dict) -> list[dict]:
     """The declared search space (sensitivity configs are added after the CV choice)."""
     fams = cfg["cv"]["families"]
+    fs = cfg["candidate_feature_set"]
     out = [
-        {"id": "rules_count", "family": "rules_count", "params": {}, "feature_set": "all"},
+        {"id": "rules_count", "family": "rules_count", "params": {}, "feature_set": fs},
         {
             "id": "rules_weighted",
             "family": "rules_weighted",
             "params": dict(fams["rules_weighted"]),
-            "feature_set": "all",
+            "feature_set": fs,
         },
     ]
     lr = fams["logistic"]
@@ -156,7 +160,7 @@ def enumerate_configs(cfg: dict) -> list[dict]:
                     "id": f"logistic_C{c}_{cw}",
                     "family": "logistic",
                     "params": {"C": c, "class_weight": cw, "max_iter": lr["max_iter"]},
-                    "feature_set": "all",
+                    "feature_set": fs,
                 }
             )
     g = fams["lightgbm"]["grid"]
@@ -168,7 +172,7 @@ def enumerate_configs(cfg: dict) -> list[dict]:
                         "id": f"lightgbm_l{nl}_m{mc}_{cw}",
                         "family": "lightgbm",
                         "params": {"num_leaves": nl, "min_child_samples": mc, "class_weight": cw},
-                        "feature_set": "all",
+                        "feature_set": fs,
                     }
                 )
     return out
@@ -350,7 +354,8 @@ def stage_cv(env: Env) -> dict:
     sens = []
     for g in env.cfg["cv"]["sensitivity"]:
         s = {k: best[g][k] for k in ("family", "params")}
-        s |= {"id": f"{best[g]['id']}__no_format", "feature_set": "no_format"}
+        sfs = env.cfg["sensitivity_feature_set"]
+        s |= {"id": f"{best[g]['id']}__{sfs}", "feature_set": sfs}
         sens.append(run_config(env, s, fs))
         print(f"cv {s['id']:<32} PR-AUC {f3(sens[-1]['cv_pr_auc'])}", flush=True)
     n_configs = len(results) + len(sens)
@@ -930,7 +935,8 @@ recall at 10% review capacity {f3(a["recall_at_capacity_0.1"])}.
 - Label P2-v1 counts coincidental positives (58.7% on VALIDATION), so rule-like features look
   better than their causal contribution.
 - VALIDATION is a single weekday; CIs ignore that one laundering attempt spans several accounts.
-- payment-format features encode a generator signature (ACH); see the no_format sensitivity row.
+- The chosen model excludes payment format (decision P4-9): ACH is a generator signature here. The
+  with-format sensitivity rows show what it would add on this synthetic data.
 """
 
 
